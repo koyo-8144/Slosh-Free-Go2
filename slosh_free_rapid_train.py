@@ -3,8 +3,12 @@ import os
 import pickle
 import shutil
 
-from legged_sf_env import LeggedSfEnv
+from legged_rapid_env import LeggedRapidEnv
 from rsl_rl.runners import OnPolicyRunner
+
+# import sys
+# sys.path.append("/home/psxkf4/Genesis/rsl_rl_ts")
+# from rsl_rl_ts.runners import OnPolicyRunner
 
 import genesis as gs
 from datetime import datetime
@@ -16,7 +20,6 @@ def get_train_cfg(exp_name, max_iterations):
     train_cfg_dict = {
         "algorithm": {
             "clip_param": 0.2,
-            # "clip_param": 0.1,
             "desired_kl": 0.01,
             "entropy_coef": 0.01,
             "gamma": 0.99,
@@ -153,12 +156,10 @@ def get_cfgs():
         'kd_scale_range': [0.8, 1.2],
     }
     obs_cfg = {
-        # "num_obs": 53,
-        # "num_privileged_obs": 56, # num_obs + base_lin_vel
-        # "num_obs": 51,
-        # "num_privileged_obs": 54,
-        "num_obs": 45,
+        "num_obs": 42,
         "num_privileged_obs": 48, # num_obs + base_lin_vel
+        # "num_obs": 54,
+        # "num_privileged_obs": 57,
         "obs_scales": {
             "lin_vel": 2.0,
             "ang_vel": 0.25,
@@ -182,49 +183,39 @@ def get_cfgs():
         "soft_dof_pos_limit": 0.9,
         "soft_torque_limit": 1.0,
         "max_contact_force": 100,
-        # "only_positive_rewards": True,
         "only_positive_rewards": True,
         # "base_height_start_step": 100,
         "min_pitch_num": 5.0,
         "action_rate_weight_decay_rate": 0.5,
-        "linvel_update_freq": 50,
         "reward_scales": {
-            # # v2
-            # "tracking_lin_vel": 2.0,
-            # "tracking_ang_vel": 0.4,
-            # "action_rate": -0.005,
-            # "contact": 0.05,
-            # v3
             "tracking_lin_vel": 1.0,
-            "tracking_ang_vel": 0.5,
-            "lin_vel_z": -2.0,
-            "ang_vel_xy": -0.05,
-            "base_height": -30.0,
-            "orientation": -0.1,
-            "collision": -1.0,
-            "dof_pos_limits": -10.0,
-            "torques": -1e-5,
-            "dof_acc": -2.5e-7,
+            "tracking_ang_vel": 0.2,
+            "lin_vel_z": -1.0,
+            # "base_height": -50.0,
             "action_rate": -0.01,
-            # "contact": 0.05,
+            "similar_to_default": -0.08,
+
+            "contact": 0.1,
+            "constrained_slosh_free": -50.0
         },
     }
     command_cfg = {
         "num_commands": 3,
+        # "num_commands": 4,
+        "curriculum_seed": 100,
         "lin_vel_x_range": [-1.0, 1.0], # This is list
         "lin_vel_y_range": [-0.5, 0.5],
         "ang_vel_range": [-0.5, 0.5],
-        # "pitch_ang_range": [-30.0, 30.0],
-        # "lin_vel_x_range": [-2.0, 2.0],
-        # "lin_vel_y_range": [-1.0, 1.0],
-        # "ang_vel_range": [-0.5, 0.5],
-        "lin_vel_x_range_start": [-1.0, 1.0],
-        "lin_vel_x_range_goal": [-2.0, 2.0],
-        "achieve_rate": 0.9,
-        "increase_rate": 0.1,
+        "limit_vel_x": [-10.0, 10.0],
+        "limit_vel_y": [-0.6, 0.6],
+        "limit_vel_yaw": [-10.0, 10.0],
+        # "lin_vel_x_range_start": [-1.0, 1.0],
+        # "lin_vel_x_range_goal": [-2.0, 2.0],
+        "achieve_rate": 0.8,
+        # "increase_rate": 0.1,
 
-        "lin_vel_y_range": [-0.5, 0.5],
-        "ang_vel_range": [-0.5, 0.5],
+        # "lin_vel_y_range": [-0.5, 0.5],
+        # "ang_vel_range": [-0.5, 0.5],
     }
     noise_cfg = {
         "add_noise": True,
@@ -261,9 +252,9 @@ def get_cfgs():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("-e", "--exp_name", type=str, default="go2_slosh_free_v3")
+    parser.add_argument("-e", "--exp_name", type=str, default="go2_slosh_free_rapid")
     parser.add_argument("-B", "--num_envs", type=int, default=4096)
-    parser.add_argument("--max_iterations", type=int, default=10000)
+    parser.add_argument("--max_iterations", type=int, default=100000)
     parser.add_argument("--resume", action="store_true", help="Resume from the latest checkpoint if this flag is set")
     parser.add_argument("--ckpt", type=int, default=0)
     parser.add_argument("--view", action="store_true", help="If you would like to see how robot is trained")
@@ -278,7 +269,7 @@ def main():
     env_cfg, obs_cfg, noise_cfg, reward_cfg, command_cfg, terrain_cfg = get_cfgs()
     train_cfg = get_train_cfg(args.exp_name, args.max_iterations)
     
-    env = LeggedSfEnv(
+    env = LeggedRapidEnv(
         num_envs=args.num_envs, 
         env_cfg=env_cfg, 
         obs_cfg=obs_cfg, 

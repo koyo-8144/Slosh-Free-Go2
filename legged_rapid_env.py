@@ -13,17 +13,16 @@ def gs_rand_float(lower, upper, shape, device):
 
 import matplotlib.pyplot as plt
 
-# Turn off during high level control
-PITCH_CMD = 0
+import sys
+sys.path.append("/home/psxkf4/rapid-locomotion-rl/mini_gym/envs/base")
+from curriculum import RewardThresholdCurriculum
 
-# After training 12 joints, try high level control
-PITCH_HIGHLEVEL = 1
-PLOT = 1
-
+PLOT = 0
 
 
 
-class LeggedEnv:
+
+class LeggedRapidEnv:
     def __init__(self, num_envs, env_cfg, obs_cfg, noise_cfg, reward_cfg, command_cfg, terrain_cfg, show_viewer=False, device="cuda"):
         self.device = torch.device(device)
         self.num_envs = num_envs
@@ -190,23 +189,6 @@ class LeggedEnv:
             ),
         )
 
-        # self.liquid = self.scene.add_entity(
-        #     # viscous liquid
-        #     # material=gs.materials.SPH.Liquid(mu=0.02, gamma=0.02),
-        #     material=gs.materials.SPH.Liquid(),
-        #     morph=gs.morphs.Cylinder(
-        #         pos=(0.0, 0.0, self.base_init_pos[2].cpu().numpy() + 0.025),  # Lowered initial position
-        #         height=0.04,  # Reduced height to fit inside boundary
-        #         radius=0.025,  # Adjusted radius for better containment
-        #     ),
-        #     surface=gs.surfaces.Default(
-        #         color=(0.4, 0.8, 1.0),
-        #         vis_mode="particle",
-        #         # vis_mode="recon",
-        #     ),
-        # )
-
-
         self.envs_origins = torch.zeros((self.num_envs, 7), device=self.device)
 
         # build
@@ -303,47 +285,79 @@ class LeggedEnv:
 
         self.init_camera_params()
 
+        self._init_command_distribution(torch.arange(self.num_envs, device=self.device))
         # input("ready?")
+
+    def _init_command_distribution(self, env_ids):
+        self.curriculum = RewardThresholdCurriculum(seed=self.command_cfg["curriculum_seed"],
+                                                    x_vel=(self.command_cfg["limit_vel_x"][0],
+                                                           self.command_cfg["limit_vel_x"][1], 51),
+                                                    y_vel=(self.command_cfg["limit_vel_y"][0],
+                                                           self.command_cfg["limit_vel_y"][1], 2),
+                                                    yaw_vel=(self.command_cfg["limit_vel_yaw"][0],
+                                                             self.command_cfg["limit_vel_yaw"][1], 51))
+        # self.env_command_bins = np.zeros(len(env_ids), dtype=np.int)
+        self.env_command_bins = np.zeros(len(env_ids), dtype=int)  # Use built-in int
+        # print("shape: ", self.env_command_bins.shape) # shape:  (4000,) which is number of envs
+        low = np.array(
+            [self.command_cfg["lin_vel_x_range"][0], self.command_cfg["lin_vel_y_range"][0],
+             self.command_cfg["ang_vel_range"][0]])
+        high = np.array(
+            [self.command_cfg["lin_vel_x_range"][1], self.command_cfg["lin_vel_y_range"][1],
+             self.command_cfg["ang_vel_range"][1]])
+        self.curriculum.set_to(low=low, high=high)
+        # print("Low: ", low)
+        # print("High: ", high)
+        # Low:  [-0.6 -0.6 -1. ]
+        # High:  [0.6 0.6 1. ]
+        # breakpoint()    
 
 
     def init_buffers(self):
         self.base_lin_vel = torch.zeros((self.num_envs, 3), device=self.device, dtype=gs.tc_float)
 
-        if PITCH_CMD or PITCH_HIGHLEVEL:
-            self.base_lin_vel_x = self.base_lin_vel[:, 0]
-            self.base_lin_vel_z = self.base_lin_vel[:, 2]
-            self.last_base_lin_vel = torch.zeros((self.num_envs, 3), device=self.device, dtype=gs.tc_float)
-            self.last_base_lin_vel_x = self.last_base_lin_vel[:, 0]
-            self.last_base_lin_vel_z = self.last_base_lin_vel[:, 2]
-            self.ax_scale = self.obs_scales["ax"]
-            self.az_scale = self.obs_scales["az"]
-            self.a_count = 0
-            self.fixed_desired_pitch = 0
-            self.base_lin_vel_x_low_freq = self.base_lin_vel[:, 0]
-            self.base_lin_vel_z_low_freq = self.base_lin_vel[:, 2]
-            self.min_pitch_num = self.reward_cfg["min_pitch_num"]
-            # print("lin_vel_x_range_start: ", self.command_cfg["lin_vel_x_range_start"])
-            # print("type: ", type(self.command_cfg["lin_vel_x_range_start"]))
-            # print("0th element: ", self.command_cfg["lin_vel_x_range_start"][0])
-            # print("1st element: ", self.command_cfg["lin_vel_x_range_start"][1])
-            self.tracking_lin_vel_rew = torch.zeros((self.num_envs, ), device=self.device, dtype=gs.tc_float)
-            self.tracking_lin_vel_rew_mean = torch.tensor(0.0, device=self.device, dtype=gs.tc_float)
-            self.tracking_lin_vel_rew_max = torch.full((self.num_envs,), self.reward_scales["tracking_lin_vel"], device=self.device)
-            self.tracking_lin_vel_rew_max_one = self.tracking_lin_vel_rew_max [0]
-            self.tracking_lin_vel_rew_threshold = self.tracking_lin_vel_rew_max * self.command_cfg["achieve_rate"]
-            self.tracking_lin_vel_rew_threshold_one = self.tracking_lin_vel_rew_threshold[0]
-            self.tracking_lin_vel_rew_threshold_one_ori  = self.tracking_lin_vel_rew_threshold_one
-            self.lin_vel_x_range_min = self.command_cfg["lin_vel_x_range_start"][0]
-            self.lin_vel_x_range_max = self.command_cfg["lin_vel_x_range_start"][1]
-            self.updated_lin_vel_x_command_range = self.command_cfg["lin_vel_x_range_start"]
-            self.desired_pitch_mean = 0
-            self.first_resample_done = False
-            self.first_resample_count = 0
-            self.resample_count = 0
-            self.range_update_count = 1
-            self.pitch_count = 0
-            self.resample_updated = False
-            self.action_rate_scale = self.reward_scales["action_rate"]
+        self.base_lin_vel_x = self.base_lin_vel[:, 0]
+        self.base_lin_vel_z = self.base_lin_vel[:, 2]
+        self.last_base_lin_vel = torch.zeros((self.num_envs, 3), device=self.device, dtype=gs.tc_float)
+        self.last_base_lin_vel_x = self.last_base_lin_vel[:, 0]
+        self.last_base_lin_vel_z = self.last_base_lin_vel[:, 2]
+        self.ax_scale = self.obs_scales["ax"]
+        self.az_scale = self.obs_scales["az"]
+        self.a_count = 0
+        self.fixed_desired_pitch = 0
+        self.base_lin_vel_x_low_freq = self.base_lin_vel[:, 0]
+        self.base_lin_vel_z_low_freq = self.base_lin_vel[:, 2]
+        self.min_pitch_num = self.reward_cfg["min_pitch_num"]
+        # print("lin_vel_x_range_start: ", self.command_cfg["lin_vel_x_range_start"])
+        # print("type: ", type(self.command_cfg["lin_vel_x_range_start"]))
+        # print("0th element: ", self.command_cfg["lin_vel_x_range_start"][0])
+        # print("1st element: ", self.command_cfg["lin_vel_x_range_start"][1])
+        self.tracking_lin_vel_rew = torch.zeros((self.num_envs, ), device=self.device, dtype=gs.tc_float)
+        self.tracking_lin_vel_rew_mean = torch.tensor(0.0, device=self.device, dtype=gs.tc_float)
+        self.tracking_lin_vel_rew_max = torch.full((self.num_envs,), self.reward_scales["tracking_lin_vel"], device=self.device)
+        self.tracking_lin_vel_rew_max_one = self.tracking_lin_vel_rew_max [0]
+        self.tracking_lin_vel_rew_threshold = self.tracking_lin_vel_rew_max * self.command_cfg["achieve_rate"]
+        self.tracking_lin_vel_rew_threshold_one = self.tracking_lin_vel_rew_threshold[0]
+        self.tracking_lin_vel_rew_threshold_one_ori  = self.tracking_lin_vel_rew_threshold_one
+        
+        self.tracking_ang_vel_rew = torch.zeros((self.num_envs, ), device=self.device, dtype=gs.tc_float)
+        self.tracking_ang_vel_rew_mean = torch.tensor(0.0, device=self.device, dtype=gs.tc_float)
+        self.tracking_ang_vel_rew_max = torch.full((self.num_envs,), self.reward_scales["tracking_ang_vel"], device=self.device)
+        self.tracking_ang_vel_rew_max_one = self.tracking_ang_vel_rew_max [0]
+        self.tracking_ang_vel_rew_threshold = self.tracking_ang_vel_rew_max * self.command_cfg["achieve_rate"]
+        self.tracking_ang_vel_rew_threshold_one = self.tracking_ang_vel_rew_threshold[0]
+        self.tracking_ang_vel_rew_threshold_one_ori  = self.tracking_ang_vel_rew_threshold_one
+        # self.lin_vel_x_range_min = self.command_cfg["lin_vel_x_range_start"][0]
+        # self.lin_vel_x_range_max = self.command_cfg["lin_vel_x_range_start"][1]
+        # self.updated_lin_vel_x_command_range = self.command_cfg["lin_vel_x_range_start"]
+        self.desired_pitch_mean = 0
+        self.first_resample_done = False
+        self.first_resample_count = 0
+        self.resample_count = 0
+        self.range_update_count = 1
+        self.pitch_count = 0
+        self.resample_updated = False
+        self.action_rate_scale = self.reward_scales["action_rate"]
 
         self.base_ang_vel = torch.zeros((self.num_envs, 3), device=self.device, dtype=gs.tc_float)
         self.projected_gravity = torch.zeros((self.num_envs, 3), device=self.device, dtype=gs.tc_float)
@@ -360,19 +374,12 @@ class LeggedEnv:
         self.time_out_buf = torch.zeros((self.num_envs,), device=self.device, dtype=gs.tc_int)
         self.out_of_bounds_buf = torch.zeros((self.num_envs,), device=self.device, dtype=gs.tc_int)
         self.commands = torch.zeros((self.num_envs, self.num_commands), device=self.device, dtype=gs.tc_float)
-        if PITCH_CMD or PITCH_HIGHLEVEL:
-            self.commands_scale = torch.tensor(
-                # [self.obs_scales["lin_vel"], self.obs_scales["lin_vel"], self.obs_scales["ang_vel"]],
-                [self.obs_scales["lin_vel"], self.obs_scales["lin_vel"], self.obs_scales["ang_vel"], self.obs_scales["pitch_ang"]],
-                device=self.device,
-                dtype=gs.tc_float,
-            )
-        else:
-            self.commands_scale = torch.tensor(
-                [self.obs_scales["lin_vel"], self.obs_scales["lin_vel"], self.obs_scales["ang_vel"]],
-                device=self.device,
-                dtype=gs.tc_float,
-            )
+        self.commands_scale = torch.tensor(
+            [self.obs_scales["lin_vel"], self.obs_scales["lin_vel"], self.obs_scales["ang_vel"]],
+            # [self.obs_scales["lin_vel"], self.obs_scales["lin_vel"], self.obs_scales["ang_vel"], self.obs_scales["pitch_ang"]],
+            device=self.device,
+            dtype=gs.tc_float,
+        )
         self.actions = torch.zeros((self.num_envs, self.num_actions), device=self.device, dtype=gs.tc_float)
         self.hip_actions = torch.zeros((self.num_envs, len(self.hip_dofs)), device=self.device, dtype=gs.tc_float)
 
@@ -571,44 +578,56 @@ class LeggedEnv:
         self.target = np.array([0.0, 0.0, 0.5])  # Assume robot is at this position
         self.camera_height = 0.0  # Fixed z-axis position for top-down view
     
-    def _resample_commands_curriculum_linvel_x_v2(self, envs_idx): # update velocity range specifically for env that satisfies the threshold
-        self.tracking_lin_vel_rew_mean = torch.mean(self.tracking_lin_vel_rew)
-        # tracking_lin_vel_rew_high = self.tracking_lin_vel_rew > self.tracking_lin_vel_rew_threshold
-        tracking_lin_vel_rew_high = self.tracking_lin_vel_rew_mean > self.tracking_lin_vel_rew_threshold_one
+    def _resample_commands_rapid(self, env_ids):
 
-        if self.first_resample_done: # After first update
-            self.resample_count += 1
-            if (self.resample_count) > self.first_resample_count * self.range_update_count: # After spending larger time spent in the first range time
-                self.tracking_lin_vel_rew_threshold_one = self.tracking_lin_vel_rew_threshold_one_ori # Get back to original threshold
-            else: # Right after first update has been done
-                self.tracking_lin_vel_rew_threshold_one = self.tracking_lin_vel_rew_max_one # So that I do not update soon
-        else: # Before first update
-            self.first_resample_count += 1
+        if len(env_ids) == 0: return
 
-        # if tracking_lin_vel_rew_high.all():
-        if tracking_lin_vel_rew_high:
-            self.first_resample_done = True
-            self.resample_count = 0
-            self.resample_updated = True
-            self.range_update_count += 1
+        # print(f"Resampling commands for env_ids: {env_ids.cpu().numpy()}")
 
-            self.lin_vel_x_range_min = torch.clip(
-                torch.tensor(self.lin_vel_x_range_min - self.command_cfg["increase_rate"]),
-                self.command_cfg["lin_vel_x_range_goal"][0],
-                0.0
-            ).item()
-            self.lin_vel_x_range_max = torch.clip(
-                torch.tensor(self.lin_vel_x_range_max + self.command_cfg["increase_rate"]),
-                0.0,
-                self.command_cfg["lin_vel_x_range_goal"][1]
-            ).item()
-            self.updated_lin_vel_x_command_range = [self.lin_vel_x_range_min, self.lin_vel_x_range_max]
+        lin_vel_rewards = self.tracking_lin_vel_rew[env_ids]
+        ang_vel_rewards = self.tracking_ang_vel_rew[env_ids]
+        # print(f"Linear Velocity Rewards: {lin_vel_rewards.cpu().numpy()}")
+        # print(f"Angular Velocity Rewards: {ang_vel_rewards.cpu().numpy()}")
 
+        lin_vel_threshold = self.tracking_lin_vel_rew_threshold_one_ori.cpu().numpy()
+        ang_vel_threshold = self.tracking_ang_vel_rew_threshold_one_ori.cpu().numpy()
+        # print(f"Linear Velocity Threshold: {lin_vel_threshold}, Angular Velocity Threshold: {ang_vel_threshold}")
 
+        old_bins = self.env_command_bins[env_ids.cpu().numpy()]
+        # print(f"Old Bins: {old_bins}")
 
-        self.commands[envs_idx, 0] = gs_rand_float(*self.updated_lin_vel_x_command_range, (len(envs_idx),), self.device)
-        self.commands[envs_idx, 1] = gs_rand_float(*self.command_cfg["lin_vel_y_range"], (len(envs_idx),), self.device)
-        self.commands[envs_idx, 2] = gs_rand_float(*self.command_cfg["ang_vel_range"], (len(envs_idx),), self.device)
+        # update step just uses train env performance (for now)
+        # self.curriculum.update(old_bins,
+        #                        lin_vel_rewards[env_ids].cpu().numpy(),
+        #                        ang_vel_rewards[env_ids].cpu().numpy(), 
+        #                        lin_vel_threshold,
+        #                        ang_vel_threshold, 
+        #                        local_range=0.5, )
+        self.curriculum.update(old_bins[env_ids.cpu().numpy() < self.num_envs],
+                               lin_vel_rewards[env_ids < self.num_envs].cpu().numpy(),
+                               ang_vel_rewards[env_ids < self.num_envs].cpu().numpy(), 
+                               lin_vel_threshold,
+                               ang_vel_threshold, local_range=0.5, )
+        # print("Curriculum updated based on training environments.")
+
+        new_commands, new_bin_inds = self.curriculum.sample(batch_size=len(env_ids))
+        # print(f"New Bins: {new_bin_inds}")
+        # print(f"New Commands (before normalization): {new_commands}")
+
+        self.env_command_bins[env_ids.cpu().numpy()] = new_bin_inds
+        self.commands[env_ids, :3] = torch.Tensor(new_commands).to(self.device)
+        # print(f"New Commands (after normalization): {self.commands[env_ids, :3].cpu().numpy()}")
+
+        self.commands[env_ids, :2] *= (torch.norm(self.commands[env_ids, :2], dim=1) > 0.2).unsqueeze(1)
+        
+
+        # # reset command sums
+        # for key in self.command_sums.keys():
+        #     self.command_sums[key][env_ids] = 0.
+        
+        # print("Command sums reset for resampled environments.\n")
+        # breakpoint()
+
     
     def _resample_commands_curriculum_linvel_x(self, envs_idx):
 
@@ -1124,16 +1143,7 @@ class LeggedEnv:
         )
 
         self.post_physics_step_callback()
-        if PITCH_CMD:
-            # self._resample_commands_pitch(envs_idx)
-            self._resample_commands_curriculum_linvel_x(envs_idx)
-        elif PITCH_HIGHLEVEL:
-            self._resample_commands_from_acc()
-            # self.commands[:, 3] = -15
-            print("Command: ", self.commands)
-        else:
-            self._resample_commands(envs_idx)
-        # self._resample_commands_max(envs_idx)
+        self._resample_commands_rapid(envs_idx)
         self._randomize_rigids(envs_idx)
         # random push
         self.common_step_counter += 1
@@ -1186,31 +1196,28 @@ class LeggedEnv:
         # compute observations
         self.obs_buf = torch.cat(
             [
-                self.base_ang_vel * self.obs_scales["ang_vel"],  # 3
-                self.rot_y * self.obs_scales["pitch_ang"], # 1
-                self.projected_gravity,  # 3
-                self.commands * self.commands_scale,  # 3
                 (self.dof_pos - self.default_dof_pos) * self.obs_scales["dof_pos"],  # 12
                 self.dof_vel * self.obs_scales["dof_vel"],  # 12
+                self.projected_gravity,  # 3
                 self.actions,  # 12
-                sin_phase, #4
-                cos_phase, #4
+                self.commands * self.commands_scale,  # 3
+                # sin_phase, #4
+                # cos_phase, #4
             ],
             axis=-1,
         )
         # compute observations
         self.privileged_obs_buf = torch.cat(
             [
-                self.base_lin_vel * self.obs_scales["lin_vel"],  # 3
-                self.base_ang_vel * self.obs_scales["ang_vel"],  # 3
-                self.rot_y * self.obs_scales["pitch_ang"], # 1
-                self.projected_gravity,  # 3
-                self.commands * self.commands_scale,  # 3
                 (self.dof_pos - self.default_dof_pos) * self.obs_scales["dof_pos"],  # 12
                 self.dof_vel * self.obs_scales["dof_vel"],  # 12
+                self.projected_gravity,  # 3
                 self.actions,  # 12
-                sin_phase, #4
-                cos_phase #4
+                self.commands * self.commands_scale,  # 3
+                self.base_lin_vel * self.obs_scales["lin_vel"],  # 3
+                self.base_ang_vel * self.obs_scales["ang_vel"],  # 3
+                # sin_phase, #4
+                # cos_phase #4
             ],
             axis=-1,
         )
@@ -1277,16 +1284,16 @@ class LeggedEnv:
                 self.tracking_lin_vel_rew = rew # torch.Size([4096])
             elif name == "tracking_ang_vel":
                 self.tracking_ang_vel_rew = rew
-            elif name == "lin_vel_z":
-                self.lin_vel_z_rew = rew
-            elif name == "action_rate":
-                self.action_rate_rew = rew
-            elif name == "similar_to_default":
-                self.similar_to_default_rew = rew
-            elif name == "contact":
-                self.contact_rew = rew
-            elif name == "constrained_slosh_free":
-                self.constrained_slosh_free_rew = rew
+            # elif name == "lin_vel_z":
+            #     self.lin_vel_z_rew = rew
+            # elif name == "action_rate":
+            #     self.action_rate_rew = rew
+            # elif name == "similar_to_default":
+            #     self.similar_to_default_rew = rew
+            # elif name == "contact":
+            #     self.contact_rew = rew
+            # elif name == "constrained_slosh_free":
+            #     self.constrained_slosh_free_rew = rew
 
 
             self.rew_buf += rew
@@ -1420,9 +1427,8 @@ class LeggedEnv:
         self.base_ang_vel[envs_idx] = 0
         self.robot.zero_all_dofs_velocity(envs_idx)
 
-        if PITCH_CMD or PITCH_HIGHLEVEL:
-            self.last_base_lin_vel_x[envs_idx] = 0
-            self.last_base_lin_vel_z[envs_idx] = 0
+        self.last_base_lin_vel_x[envs_idx] = 0
+        self.last_base_lin_vel_z[envs_idx] = 0
 
         # reset buffers
         self.last_actions[envs_idx] = 0.0
@@ -1441,13 +1447,7 @@ class LeggedEnv:
                 torch.mean(self.episode_sums[key][envs_idx]).item() / self.env_cfg["episode_length_s"]
             )
             self.episode_sums[key][envs_idx] = 0.0
-        if PITCH_CMD:
-            # self._resample_commands_pitch(envs_idx)
-            self._resample_commands_curriculum_linvel_x(envs_idx)
-        elif PITCH_HIGHLEVEL:
-            self._resample_commands_from_acc()
-        else:
-            self._resample_commands(envs_idx)
+        self._resample_commands_rapid(envs_idx)
         # self._resample_commands_max(envs_idx)
         if self.env_cfg['send_timeouts']:
             self.extras['time_outs'] = self.time_out_buf

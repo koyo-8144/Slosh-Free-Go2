@@ -4,6 +4,7 @@ import pickle
 
 import torch
 from legged_env import LeggedEnv
+from legged_sf_env import LeggedSfEnv
 from rsl_rl.runners import OnPolicyRunner
 import genesis as gs
 import copy
@@ -245,7 +246,7 @@ import re
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("-e", "--exp_name", type=str, default="go2_slosh_free")
+    parser.add_argument("-e", "--exp_name", type=str, default="go2_slosh_free_v2")
     parser.add_argument("--ckpt", type=int, default=100)
     args = parser.parse_args()
 
@@ -261,9 +262,9 @@ def main():
     env_cfg, obs_cfg, noise_cfg, reward_cfg, command_cfg, train_cfg, terrain_cfg = pickle.load(open(f"{log_dir}/cfgs.pkl", "rb"))
     # env_cfg, obs_cfg, noise_cfg, reward_cfg, command_cfg, terrain_cfg = get_cfgs()
     # train_cfg = get_train_cfg("slr", "100000")
-    reward_cfg["reward_scales"] = {}
+    # reward_cfg["reward_scales"] = {}
 
-    env = LeggedEnv(
+    env = LeggedSfEnv(
         num_envs=1,
         env_cfg=env_cfg,
         obs_cfg=obs_cfg,

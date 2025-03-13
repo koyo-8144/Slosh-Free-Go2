@@ -7,12 +7,11 @@ import torch
 import cv2
 import numpy as np
 from legged_env import LeggedEnv
+from legged_sf_env import LeggedSfEnv
 from rsl_rl.runners import OnPolicyRunner
 import genesis as gs
 import re
 import copy
-
-PITCH_HIGHLEVEL = 0
 
 
 
@@ -22,7 +21,7 @@ class Go2EvaluationNode(Node):
         self.device="cuda:0"
 
         # Declare and retrieve parameters
-        self.declare_parameter('exp_name', 'go2_slosh_free')
+        self.declare_parameter('exp_name', 'go2_slosh_free_v3')
         self.declare_parameter('ckpt', 10000)
 
         self.exp_name = self.get_parameter('exp_name').value
@@ -41,13 +40,13 @@ class Go2EvaluationNode(Node):
         # Sort subdirectories by their names (assuming they are timestamped in lexicographical order)
         most_recent_subdir = sorted(subdirs)[-1] if subdirs else None
         log_dir = os.path.join(log_dir, most_recent_subdir)
-        # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free/20250215_215334"
+        # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v2/20250312_210630"
         env_cfg, obs_cfg, noise_cfg, reward_cfg, command_cfg, train_cfg, terrain_cfg = pickle.load(open(f"{log_dir}/cfgs.pkl", "rb"))
         # env_cfg, obs_cfg, noise_cfg, reward_cfg, command_cfg, terrain_cfg = get_cfgs()
         # train_cfg = get_train_cfg("slr", "100000")
-        # reward_cfg["reward_scales"] = {}
+        reward_cfg["reward_scales"] = {}
 
-        self.env = LeggedEnv(
+        self.env = LeggedSfEnv(
             num_envs=1,
             env_cfg=env_cfg,
             obs_cfg=obs_cfg,
@@ -58,7 +57,6 @@ class Go2EvaluationNode(Node):
             show_viewer=True,
         )
 
-        
         runner = OnPolicyRunner(self.env, train_cfg, log_dir, device="cuda:0")
 
         # List all files in the most recent subdirectory
@@ -70,16 +68,14 @@ class Go2EvaluationNode(Node):
         model_file = max(model_files, key=lambda x: x[1])[0]
 
         resume_path = os.path.join(log_dir, model_file)
-        # resume_path =  "/home/psxkf4/Genesis/logs/go2_slosh_free/20250218_200354/model_6000.pt"
-        # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free/20250216_035059/model_20000.pt"
-        # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free/20250215_215334/model_2500.pt"
         runner.load(resume_path)
         # resume_path = os.path.join(log_dir, f"model_{args.ckpt}.pt")
         # runner.load(resume_path)
         self.policy = runner.get_inference_policy(device="cuda:0")
         # export policy as a jit module (used to run it from C++)
-        EXPORT_POLICY = False
+        EXPORT_POLICY = True
         if EXPORT_POLICY:
+            log_dirh = "/home/psxkf4/Genesis/examples/locomotion/unitree"
             path = os.path.join(log_dir, 'exported', 'policies')
             # export_policy_as_jit(runner.alg.actor_critic, path)
             os.makedirs(path, exist_ok=True)
@@ -95,10 +91,7 @@ class Go2EvaluationNode(Node):
             loaded_model.save(versionless_path)
             print("Model successfully converted to version-less format: ", versionless_path)
 
-        if PITCH_HIGHLEVEL:
-            self.teleop_commands = torch.zeros((1, 4), device=self.device)  # 3 for [x, y, z]
-        else:
-            self.teleop_commands = torch.zeros((1, 3), device=self.device)  # 3 for [x, y, z]
+        self.teleop_commands = torch.zeros((1, 3), device=self.device)  # 3 for [x, y, z]
         # self.teleop_commands_scale = torch.tensor(
         #     [2.0, 2.0, 0.25],
         #     device=self.device
@@ -115,9 +108,6 @@ class Go2EvaluationNode(Node):
         self.teleop_commands[:, 0] = msg.linear.x  # Forward/Backward
         self.teleop_commands[:, 1] = msg.linear.y  # Left/Right
         self.teleop_commands[:, 2] = msg.angular.z  # Rotational velocity
-        if PITCH_HIGHLEVEL:
-            self.teleop_commands[:, 3] = 0
-
 
 
     def control_loop(self):
