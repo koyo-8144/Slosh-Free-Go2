@@ -187,7 +187,7 @@ def get_cfgs():
         # "base_height_start_step": 100,
         "min_pitch_num": 5.0,
         "action_rate_weight_decay_rate": 0.5,
-        "linvel_update_freq": 50,
+        "linvel_update_freq": 1,
         "reward_scales": {
             # # v2
             # "tracking_lin_vel": 2.0,
@@ -195,8 +195,8 @@ def get_cfgs():
             # "action_rate": -0.005,
             # "contact": 0.05,
             # v3
-            "tracking_lin_vel": 1.0,
-            "tracking_ang_vel": 0.5,
+            "tracking_lin_vel": 2.0,
+            "tracking_ang_vel": 1.0,
             "lin_vel_z": -2.0,
             "ang_vel_xy": -0.05,
             "base_height": -30.0,
@@ -206,7 +206,7 @@ def get_cfgs():
             "torques": -1e-5,
             "dof_acc": -2.5e-7,
             "action_rate": -0.01,
-            # "contact": 0.05,
+            "slosh_free": 1.0,
         },
     }
     command_cfg = {
