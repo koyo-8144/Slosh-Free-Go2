@@ -68,6 +68,9 @@ class Go2EvaluationNode(Node):
         model_file = max(model_files, key=lambda x: x[1])[0]
 
         resume_path = os.path.join(log_dir, model_file)
+        # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250314_204308/model_10000.pt"
+        # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250317_024856/model_8000.pt"
+        # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250317_102932/model_2000.pt"
         runner.load(resume_path)
         # resume_path = os.path.join(log_dir, f"model_{args.ckpt}.pt")
         # runner.load(resume_path)

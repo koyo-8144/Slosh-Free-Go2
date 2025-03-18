@@ -157,8 +157,8 @@ def get_cfgs():
         # "num_privileged_obs": 56, # num_obs + base_lin_vel
         # "num_obs": 51,
         # "num_privileged_obs": 54,
-        "num_obs": 45,
-        "num_privileged_obs": 48, # num_obs + base_lin_vel
+        "num_obs": 46,
+        "num_privileged_obs": 49, # num_obs + base_lin_vel
         "obs_scales": {
             "lin_vel": 2.0,
             "ang_vel": 0.25,
@@ -188,6 +188,7 @@ def get_cfgs():
         "min_pitch_num": 5.0,
         "action_rate_weight_decay_rate": 0.5,
         "linvel_update_freq": 1,
+        "alpha": 0.0,
         "reward_scales": {
             # # v2
             # "tracking_lin_vel": 2.0,
@@ -206,7 +207,7 @@ def get_cfgs():
             "torques": -1e-5,
             "dof_acc": -2.5e-7,
             "action_rate": -0.01,
-            "slosh_free": 1.0,
+            "slosh_free": 0.015,
         },
     }
     command_cfg = {
@@ -222,9 +223,8 @@ def get_cfgs():
         "lin_vel_x_range_goal": [-2.0, 2.0],
         "achieve_rate": 0.9,
         "increase_rate": 0.1,
-
-        "lin_vel_y_range": [-0.5, 0.5],
-        "ang_vel_range": [-0.5, 0.5],
+        "acc_sigma": 0.2,    
+        "sign_flip_rate": 0.1,    
     }
     noise_cfg = {
         "add_noise": True,

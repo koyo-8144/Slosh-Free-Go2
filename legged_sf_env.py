@@ -13,7 +13,7 @@ def gs_rand_float(lower, upper, shape, device):
 
 import matplotlib.pyplot as plt
 
-PLOT = 0
+PLOT_PITCH = 0
 
 
 
@@ -329,6 +329,16 @@ class LeggedSfEnv:
         # self.action_rate_scale = self.reward_scales["action_rate"]
         self.linvel_update_freq = self.reward_cfg["linvel_update_freq"]
         self.linvel_update_actual_freq = (1 / self.dt) / self.linvel_update_freq
+        # Suppose you keep these as class attributes:
+        self.ax_filtered = 0.0
+        self.az_filtered = -9.8  # assuming near gravity at start
+        # alpha controls how much new data matters vs. old data (0 < alpha < 1)
+        self.alpha = self.reward_cfg["alpha"]
+        self.acc_sigma = self.command_cfg["acc_sigma"]
+        self.sign_flip_rate = self.command_cfg["sign_flip_rate"]
+        # self.commanded_lin_vel_x_walking = torch.zeros((self.num_envs,), device=self.device, dtype=gs.tc_float)
+        # self.ax_sampled = torch.zeros((self.num_envs,), device=self.device, dtype=gs.tc_float)
+        self.smoothed_ax = torch.zeros((self.num_envs,), device=self.device, dtype=gs.tc_float)
 
         self.base_ang_vel = torch.zeros((self.num_envs, 3), device=self.device, dtype=gs.tc_float)
         self.projected_gravity = torch.zeros((self.num_envs, 3), device=self.device, dtype=gs.tc_float)
@@ -454,13 +464,13 @@ class LeggedSfEnv:
         # )
 
 
-        if PLOT:
-            self.base_lin_vel_x_list = []
-            self.base_lin_vel_z_list = []
-            self.last_base_lin_vel_x_list = []
-            self.last_base_lin_vel_z_list = []
-            self.ax_list = []
-            self.az_list = []
+        if PLOT_PITCH:
+            # self.base_lin_vel_x_list = []
+            # self.base_lin_vel_z_list = []
+            # self.last_base_lin_vel_x_list = []
+            # self.last_base_lin_vel_z_list = []
+            # self.ax_list = []
+            # self.az_list = []
             self.desired_theta_list = []
             self.current_pitch_list = []
             self.time_steps = []  # Track time steps
@@ -470,7 +480,7 @@ class LeggedSfEnv:
             plt.ion()
             # self.fig, self.axs = plt.subplots(4, 1, figsize=(10, 10))
             # self.fig, self.axs = plt.subplots(2, 1, figsize=(5, 5))
-            self.fig, self.axs = plt.subplots(4, 1, figsize=(8, 8))
+            self.fig, self.axs = plt.subplots(1, 1, figsize=(4, 4))
 
 
             # self.axs[0].set_title("Current Base Linear X Velocities")
@@ -481,28 +491,28 @@ class LeggedSfEnv:
             # self.axs[1].set_ylabel("Velocity")
             # self.axs[1].legend(["Last Base Lin Vel X"])
             
-            self.axs[0].set_title("Base Linear X Velocities")
-            self.axs[0].set_ylabel("Velocity")
-            self.axs[0].legend(["Base Lin Vel X", "Last Base Lin Vel X"])
+            # self.axs[0].set_title("Base Linear X Velocities")
+            # self.axs[0].set_ylabel("Velocity")
+            # self.axs[0].legend(["Base Lin Vel X", "Last Base Lin Vel X"])
 
-            self.axs[1].set_title("Base Linear Z Velocities")
-            self.axs[1].set_ylabel("Velocity")
-            self.axs[1].legend(["Base Lin Vel Z", "Last Base Lin Vel Z"])
+            # self.axs[1].set_title("Base Linear Z Velocities")
+            # self.axs[1].set_ylabel("Velocity")
+            # self.axs[1].legend(["Base Lin Vel Z", "Last Base Lin Vel Z"])
 
-            self.axs[2].set_title("Accelerations")
-            self.axs[2].set_xlabel("Time Steps")
-            self.axs[2].set_ylabel("Acceleration")
-            self.axs[2].legend(["Ax", "Az"])
+            # self.axs[2].set_title("Accelerations")
+            # self.axs[2].set_xlabel("Time Steps")
+            # self.axs[2].set_ylabel("Acceleration")
+            # self.axs[2].legend(["Ax", "Az"])
 
             # self.axs[1].set_title("Accelerations")
             # self.axs[1].set_xlabel("Time Steps")
             # self.axs[1].set_ylabel("Acceleration")
             # self.axs[1].legend(["Ax"])
 
-            self.axs[3].set_title("Pitch")
-            self.axs[3].set_xlabel("Time Steps")
-            self.axs[3].set_ylabel("Pitch")
-            self.axs[3].legend(["Desired theta", "Current Pitch"])
+            self.axs.set_title("Pitch")
+            self.axs.set_xlabel("Time Steps")
+            self.axs.set_ylabel("Pitch")
+            self.axs.legend(["Desired theta", "Current Pitch"])
 
 
 
@@ -551,90 +561,6 @@ class LeggedSfEnv:
         self.camera_height = 0.0  # Fixed z-axis position for top-down view
     
 
-    def _resample_commands_max(self, envs_idx):
-        # Sample linear and angular velocities
-        self.commands[envs_idx, 0] = gs_rand_float(*self.command_cfg["lin_vel_x_range"], (len(envs_idx),), self.device)
-        self.commands[envs_idx, 1] = gs_rand_float(*self.command_cfg["lin_vel_y_range"], (len(envs_idx),), self.device)
-        self.commands[envs_idx, 2] = gs_rand_float(*self.command_cfg["ang_vel_range"], (len(envs_idx),), self.device)
-
-        # Randomly multiply by -1 or 1 (50/50 chance)
-        random_signs = torch.randint(0, 2, self.commands[envs_idx].shape, device=self.device) * 2 - 1
-        self.commands[envs_idx] *= random_signs
-    
-    def _resample_commands_from_acc(self):
-        self.a_count += 1
-        self.base_lin_vel_x_cmd = self.commands[:, 0]
-        # self.base_lin_vel_y_cmd = self.commands[:, 1] 
-        # self.base_ang_vel_z_cmd = self.commands[:, 2]
-
-        if self.a_count % 10 == 0:
-            base_lin_vel_x_temp = self.base_lin_vel_x.clone()
-            base_lin_vel_z_temp = self.base_lin_vel_z.clone()
-            self.base_lin_vel_x_low_freq = base_lin_vel_x_temp
-            self.base_lin_vel_z_low_freq = base_lin_vel_z_temp
-
-        ax = (self.last_base_lin_vel_x - self.base_lin_vel_x_low_freq) / self.dt
-        az = -9.8 + (self.last_base_lin_vel_z - self.base_lin_vel_z_low_freq) / self.dt
-        ax *= self.ax_scale
-        az *= self.az_scale
-        # ax *= 10
-        # az *= 5
-        # Compute the desired pitch angle (theta) in radians
-        desired_pitch = torch.atan2(ax, az)
-
-        # print("ax: ", ax)
-        # print("az: ", az)
-        # print("Desired Pitch: ", desired_pitch)
-
-        self.commands[:, 3]  = desired_pitch
-        
-        if PLOT:
-            # Convert tensors to numbers (if using PyTorch)
-            base_lin_vel_x = self.base_lin_vel_x_low_freq.item()
-            base_lin_vel_z = self.base_lin_vel_z_low_freq.item()
-            last_base_lin_vel_x = self.last_base_lin_vel_x.item()
-            last_base_lin_vel_z = self.last_base_lin_vel_z.item()
-            ax_val = ax.item()
-            az_val = az.item()
-            desired_pitch = desired_pitch.item()
-            rot_y = self.rot_y.item()
-
-            # print("current: ", base_lin_vel_x)
-            # print("last: ", last_base_lin_vel_x)
-
-            # Store values with a limit to prevent memory overload
-            self.append_limited(self.base_lin_vel_x_list, base_lin_vel_x)
-            self.append_limited(self.base_lin_vel_z_list, base_lin_vel_z)
-            self.append_limited(self.last_base_lin_vel_x_list, last_base_lin_vel_x)
-            self.append_limited(self.last_base_lin_vel_z_list, last_base_lin_vel_z)
-            self.append_limited(self.ax_list, ax_val)
-            self.append_limited(self.az_list, az_val)
-            self.append_limited(self.desired_theta_list, desired_pitch)
-            self.append_limited(self.current_pitch_list, rot_y)
-            self.append_limited(self.time_steps, self.a_count)
-
-            # # Only update the plot every 10 iterations for performance
-            # if self.a_count % 10 == 0:
-            # self.update_plot()
-            self.update_plot_cla()
-
-            if self.a_count == 10000:
-                self.show_plot()
-
-        # self.a_count += 1
-        # if self.a_count % (1 / (self.dt)) == 0:
-        # if self.a_count % (1 / (self.dt * 0.5)) == 0:
-        # print("self.a_count: ", self.a_count)
-        if self.a_count % 1 == 0:
-            print("Last Base Lin Vel is updated")
-            # breakpoint()
-            base_lin_vel_x_temp = self.base_lin_vel_x_low_freq.clone()
-            base_lin_vel_z_temp = self.base_lin_vel_z_low_freq.clone()
-            self.last_base_lin_vel_x = base_lin_vel_x_temp
-            self.last_base_lin_vel_z = base_lin_vel_z_temp
-            
-            # self.last_base_lin_vel_x = 0
-
     def append_limited(self, lst, value):
         """ Keep list size under self.max_points to avoid performance issues. """
         if len(lst) >= self.max_points:
@@ -675,70 +601,6 @@ class LeggedSfEnv:
         plt.draw()
         plt.pause(0.01)  # Refresh the plot in real-time
 
-    def update_plot_cla(self):
-        # self.axs[0].cla()
-        # self.axs[0].plot(self.time_steps, self.base_lin_vel_x_list, label="Current Base Lin Vel X", color="b")
-        # self.axs[0].set_ylabel("Velocity")
-        # self.axs[0].legend()
-        # self.axs[0].set_title("Current Base Linear X Velocities")
-
-        # self.axs[1].cla()
-        # self.axs[1].plot(self.time_steps, self.last_base_lin_vel_x_list, label="Last Base Lin Vel X", color="r")
-        # self.axs[1].set_ylabel("Velocity")
-        # self.axs[1].legend()
-        # self.axs[1].set_title("Last Base Linear X Velocities")
-
-        self.axs[0].cla()
-        self.axs[0].plot(self.time_steps, self.base_lin_vel_x_list, label="Base Lin Vel X", color="b")
-        self.axs[0].plot(self.time_steps, self.last_base_lin_vel_x_list, label="Last Base Lin Vel X", color="r")
-        self.axs[0].set_ylabel("Velocity")
-        self.axs[0].legend()
-        self.axs[0].set_title("Base Linear X Velocities")
-
-        self.axs[1].cla()
-        self.axs[1].plot(self.time_steps, self.base_lin_vel_z_list, label="Base Lin Vel Z", color="b")
-        self.axs[1].plot(self.time_steps, self.last_base_lin_vel_z_list, label="Last Base Lin Vel Z", color="r")
-        self.axs[1].set_ylabel("Velocity")
-        self.axs[1].legend()
-        self.axs[1].set_title("Base Linear Z Velocities")
-
-        self.axs[2].cla()
-        self.axs[2].plot(self.time_steps, self.ax_list, label="Ax", color="g")
-        self.axs[2].plot(self.time_steps, self.az_list, label="Az", color="m")
-        self.axs[2].set_xlabel("Time Steps")
-        self.axs[2].set_ylabel("Acceleration")
-        self.axs[2].legend()
-        self.axs[2].set_title("Accelerations")
-
-        # self.axs[1].cla()
-        # self.axs[1].plot(self.time_steps, self.ax_list, label="Ax", color="g")
-        # self.axs[1].set_xlabel("Time Steps")
-        # self.axs[1].set_ylabel("Acceleration")
-        # self.axs[1].legend()
-        # self.axs[1].set_title("Accelerations")
-
-        # self.axs[3].cla()
-        # self.axs[3].plot(self.time_steps, self.desired_theta_list, label="Desired", color="g")
-        # self.axs[3].plot(self.time_steps, self.current_pitch_list, label="Current", color="m")
-        # self.axs[3].set_xlabel("Time Steps")
-        # self.axs[3].set_ylabel("Pitch")
-        # self.axs[3].legend()
-        # self.axs[3].set_title("Pitch")
-
-        self.axs[3].cla()
-        self.axs[3].plot(self.time_steps, self.desired_theta_list, label="Desired", color="g")
-        self.axs[3].plot(self.time_steps, self.current_pitch_list, label="Current", color="m")
-        self.axs[3].set_xlabel("Time Steps")
-        self.axs[3].set_ylabel("Pitch")
-        self.axs[3].legend()
-        self.axs[3].set_title("Pitch")
-
-        plt.pause(0.01)  # Refresh the plot in real-time
-
-    def show_plot(self):
-        plt.ioff()
-        plt.show()
-
     
     def _resample_commands_pitch(self, envs_idx):
         self.commands[envs_idx, 0] = gs_rand_float(*self.command_cfg["lin_vel_x_range"], (len(envs_idx),), self.device)
@@ -755,6 +617,64 @@ class LeggedSfEnv:
         self.commands[envs_idx, 0] = gs_rand_float(*self.command_cfg["lin_vel_x_range"], (len(envs_idx),), self.device)
         self.commands[envs_idx, 1] = gs_rand_float(*self.command_cfg["lin_vel_y_range"], (len(envs_idx),), self.device)
         self.commands[envs_idx, 2] = gs_rand_float(*self.command_cfg["ang_vel_range"], (len(envs_idx),), self.device)
+
+    def _resample_commands_gaussian_acc(self, envs_idx, reset_flag):
+        old_lin_vel_x_command = self.commands[envs_idx, 0]
+
+        # For y and yaw, keep your old logic:
+        self.commands[envs_idx, 1] = gs_rand_float(*self.command_cfg["lin_vel_y_range"], (len(envs_idx),), self.device)
+        self.commands[envs_idx, 2] = gs_rand_float(*self.command_cfg["ang_vel_range"], (len(envs_idx),), self.device)
+
+        # Possibly call _update_base_lin_vel_x for newly reset envs:
+        dt = self.linvel_update_actual_freq  # or self.env_cfg["some_dt"] if you store it that way
+        # Just do one step of random acceleration:
+        ax_sampled = torch.randn((len(envs_idx),), device=self.device) * self.acc_sigma
+        # This way of sampling can prevent ax_sampled from being zero many times,
+        # But this _resample_commands_gaussian_acc funciton is called even when Go2 is walking
+        # So we need ax_sampled to be both positive and negative.
+        # ax_sampled = torch.abs(torch.randn((self.num_envs,), device=self.device)) * self.acc_sigma
+        self.commands[envs_idx, 0] += ax_sampled * dt
+        
+        if reset_flag: # when Go2 is not walking
+            # resample both negative and positive velocity
+            self.commands[envs_idx, 0] = gs_rand_float(*self.command_cfg["lin_vel_x_range"], (len(envs_idx),), self.device)
+        else: # while Go2 is walking
+            # Define the full allowed range as provided in self.command_cfg.
+            full_min = torch.full_like(old_lin_vel_x_command, self.command_cfg["lin_vel_x_range"][0])
+            full_max = torch.full_like(old_lin_vel_x_command, self.command_cfg["lin_vel_x_range"][1])
+
+            # For environments with a positive old velocity, we want to allow only non-negative values.
+            pos_min = torch.full_like(old_lin_vel_x_command, -self.sign_flip_rate)
+            pos_max = full_max  # maximum remains the same.
+
+            # For environments with a negative old velocity, we want to allow only non-positive values.
+            neg_min = full_min  # minimum remains the same.
+            neg_max = torch.full_like(old_lin_vel_x_command, self.sign_flip_rate)
+
+            # For those environments where the old velocity is exactly zero, allow the full range.
+            # Create element-wise minimum and maximum bounds based on the sign of old_lin_vel_x_command.
+            min_vx = torch.where(old_lin_vel_x_command > 0, pos_min,
+                                torch.where(old_lin_vel_x_command < 0, neg_min, full_min))
+            max_vx = torch.where(old_lin_vel_x_command > 0, pos_max,
+                                torch.where(old_lin_vel_x_command < 0, neg_max, full_max))
+            
+            # Finally, clamp the new x-velocity command for each environment element-wise.
+            # This ensures that if the robot was going forward, it stays in [-0.1, max_vx],
+            # and if it was going backward, it stays in [min_vx, 0.1].
+            self.commands[envs_idx, 0] = torch.max(torch.min(self.commands[envs_idx, 0], max_vx), min_vx)
+
+            # # resample the same positive or negative so that Go2 does not walk forward and backward alternaly
+            # if old_lin_vel_x_command > 0: # when Go2 is currently walking forward
+            #     min_vx, max_vx = -self.sign_flip_rate, self.command_cfg["lin_vel_x_range"][1]
+            # elif old_lin_vel_x_command < 0: # when Go2 is currently walking backward
+            #     min_vx, max_vx = self.command_cfg["lin_vel_x_range"][0], self.sign_flip_rate
+            # else: # when Go2 is stopped for some reason
+            #     min_vx, max_vx = self.command_cfg["lin_vel_x_range"][0], self.command_cfg["lin_vel_x_range"][1]
+            # self.commands[envs_idx, 0] = torch.clamp(self.commands[envs_idx, 0], min_vx, max_vx)
+        
+        # if not reset_flag: # record for tensorbard only when Go2 is walking
+        #     self.commanded_lin_vel_x_walking = self.commands[envs_idx, 0]
+
 
     def generate_subterrain_grid(self, rows, cols, terrain_types, weights):
         """
@@ -924,7 +844,8 @@ class LeggedSfEnv:
             )
 
     def give_runner_data(self):
-        return self.lin_vel_x_range_min, self.lin_vel_x_range_max, self.tracking_lin_vel_rew_mean, self.tracking_lin_vel_rew_threshold_one, self.desired_pitch_mean, self.pitch_count, self.action_rate_scale
+        # return self.lin_vel_x_range_min, self.lin_vel_x_range_max, self.tracking_lin_vel_rew_mean, self.tracking_lin_vel_rew_threshold_one, self.desired_pitch_mean, self.pitch_count, self.action_rate_scale
+        return self.smoothed_ax[0]
 
     def step(self, actions):
         self.actions = torch.clip(actions, -self.env_cfg["clip_actions"], self.env_cfg["clip_actions"])
@@ -990,7 +911,7 @@ class LeggedSfEnv:
         )
         # self.rot_y = self.base_euler[:, 1]
         self.rot_y = self.base_euler[:, 1].unsqueeze(-1) 
-        # print("self.rot_y: ", self.rot_y.shape)
+        # print("self.rot_y: ", self.rot_y)
 
         # print("Pitch: ", self.rot_y)
         inv_base_quat = inv_quat(self.base_quat)
@@ -1024,7 +945,9 @@ class LeggedSfEnv:
         )
 
         self.post_physics_step_callback()
-        self._resample_commands(envs_idx)
+        # self._resample_commands(envs_idx)
+        reset_flag = False
+        self._resample_commands_gaussian_acc(envs_idx, reset_flag)
         self._randomize_rigids(envs_idx)
         # random push
         self.common_step_counter += 1
@@ -1083,6 +1006,7 @@ class LeggedSfEnv:
                 (self.dof_pos - self.default_dof_pos) * self.obs_scales["dof_pos"],  # 12
                 self.dof_vel * self.obs_scales["dof_vel"],  # 12
                 self.actions,  # 12
+                self.rot_y, # 1
                 # sin_phase, #4
                 # cos_phase #4
             ],
@@ -1098,6 +1022,7 @@ class LeggedSfEnv:
                 (self.dof_pos - self.default_dof_pos) * self.obs_scales["dof_pos"],  # 12
                 self.dof_vel * self.obs_scales["dof_vel"],  # 12
                 self.actions,  # 12
+                self.rot_y, # 1
                 # sin_phase, #4
                 # cos_phase #4
             ],
@@ -1108,7 +1033,8 @@ class LeggedSfEnv:
         self.privileged_obs_buf = torch.clip(self.privileged_obs_buf, -self.clip_obs, self.clip_obs)
         if self.add_noise:
             self.obs_buf += (2 * torch.rand_like(self.obs_buf) - 1) * self.noise_scale_vec
-        self.check_and_sanitize_observations()
+        # self.check_and_sanitize_observations()
+        self.check_and_reset_observations()
         self.second_last_actions[:] = self.last_actions[:]
         self.last_actions[:] = self.actions[:]
         self.last_dof_vel[:] = self.dof_vel[:]
@@ -1116,10 +1042,140 @@ class LeggedSfEnv:
         self.a_count += 1
         # if self.a_count % (1 / (self.dt)) == 0:
         if self.a_count % self.linvel_update_freq == 0:
+            # Since self.base_lin_vel_x_low_freq is a reference to self.base_lin_vel[:, 0], 
+            # it implicitly updates whenever self.base_lin_vel[:, 0] is updated.
             base_lin_vel_x_temp = self.base_lin_vel_x_low_freq.clone()
             base_lin_vel_z_temp = self.base_lin_vel_z_low_freq.clone()
             self.last_base_lin_vel_x = base_lin_vel_x_temp
             self.last_base_lin_vel_z = base_lin_vel_z_temp
+
+        if PLOT_PITCH:
+            # 1. Compute raw a_x, a_z
+            ax = (self.base_lin_vel_x - self.last_base_lin_vel_x) / (1 / self.linvel_update_actual_freq)
+            az = -9.8 + (self.base_lin_vel_z - self.last_base_lin_vel_z) / (1 / self.linvel_update_actual_freq)
+            
+            # 2. Exponential smoothing
+            self.ax_filtered = self.alpha * self.ax_filtered + (1.0 - self.alpha) * ax
+            self.az_filtered = self.alpha * self.az_filtered + (1.0 - self.alpha) * az
+            
+            # 3. Use the filtered values
+            ax_smooth = self.ax_filtered * self.ax_scale
+            az_smooth = self.az_filtered * self.az_scale
+
+            desired_pitch = torch.atan2(-ax_smooth, -az_smooth)
+            desired_pitch_degrees = torch.rad2deg(desired_pitch)
+
+            # Convert tensors to numbers (if using PyTorch)
+            # base_lin_vel_x = self.base_lin_vel_x_low_freq.item()
+            # base_lin_vel_z = self.base_lin_vel_z_low_freq.item()
+            # last_base_lin_vel_x = self.last_base_lin_vel_x.item()
+            # last_base_lin_vel_z = self.last_base_lin_vel_z.item()
+            # ax_val = ax.item()
+            # az_val = az.item()
+            desired_pitch_degrees = desired_pitch_degrees.item()
+            rot_y = self.rot_y.item()
+
+            # print("current: ", base_lin_vel_x)
+            # print("last: ", last_base_lin_vel_x)
+
+            # Store values with a limit to prevent memory overload
+            # self.append_limited(self.base_lin_vel_x_list, base_lin_vel_x)
+            # self.append_limited(self.base_lin_vel_z_list, base_lin_vel_z)
+            # self.append_limited(self.last_base_lin_vel_x_list, last_base_lin_vel_x)
+            # self.append_limited(self.last_base_lin_vel_z_list, last_base_lin_vel_z)
+            # self.append_limited(self.ax_list, ax_val)
+            # self.append_limited(self.az_list, az_val)
+            self.append_limited(self.desired_theta_list, desired_pitch_degrees)
+            self.append_limited(self.current_pitch_list, rot_y)
+            self.append_limited(self.time_steps, self.a_count)
+
+            # # Only update the plot every 10 iterations for performance
+            # if self.a_count % 10 == 0:
+            # self.update_plot()
+            self.update_plot_cla()
+
+            if self.a_count == 10000:
+                self.show_plot()
+
+    def to_numpy(self, data):
+        """Convert a tensor or a list of tensors to a NumPy array."""
+        if isinstance(data, torch.Tensor):
+            return data.detach().cpu().numpy()  # Move tensor to CPU and convert to NumPy
+        
+        if isinstance(data, list):  # If it's a list, check if it contains tensors
+            return np.array([x.detach().cpu().numpy() if isinstance(x, torch.Tensor) else x for x in data])
+
+        return np.array(data)  # Convert normal lists to NumPy
+
+    def update_plot_cla(self):
+        # self.axs[0].cla()
+        # self.axs[0].plot(self.time_steps, self.base_lin_vel_x_list, label="Current Base Lin Vel X", color="b")
+        # self.axs[0].set_ylabel("Velocity")
+        # self.axs[0].legend()
+        # self.axs[0].set_title("Current Base Linear X Velocities")
+
+        # self.axs[1].cla()
+        # self.axs[1].plot(self.time_steps, self.last_base_lin_vel_x_list, label="Last Base Lin Vel X", color="r")
+        # self.axs[1].set_ylabel("Velocity")
+        # self.axs[1].legend()
+        # self.axs[1].set_title("Last Base Linear X Velocities")
+
+        # self.axs[0].cla()
+        # self.axs[0].plot(self.time_steps, self.base_lin_vel_x_list, label="Base Lin Vel X", color="b")
+        # self.axs[0].plot(self.time_steps, self.last_base_lin_vel_x_list, label="Last Base Lin Vel X", color="r")
+        # self.axs[0].set_ylabel("Velocity")
+        # self.axs[0].legend()
+        # self.axs[0].set_title("Base Linear X Velocities")
+
+        # self.axs[1].cla()
+        # self.axs[1].plot(self.time_steps, self.base_lin_vel_z_list, label="Base Lin Vel Z", color="b")
+        # self.axs[1].plot(self.time_steps, self.last_base_lin_vel_z_list, label="Last Base Lin Vel Z", color="r")
+        # self.axs[1].set_ylabel("Velocity")
+        # self.axs[1].legend()
+        # self.axs[1].set_title("Base Linear Z Velocities")
+
+        # self.axs[2].cla()
+        # self.axs[2].plot(self.time_steps, self.ax_list, label="Ax", color="g")
+        # self.axs[2].plot(self.time_steps, self.az_list, label="Az", color="m")
+        # self.axs[2].set_xlabel("Time Steps")
+        # self.axs[2].set_ylabel("Acceleration")
+        # self.axs[2].legend()
+        # self.axs[2].set_title("Accelerations")
+
+        # self.axs[1].cla()
+        # self.axs[1].plot(self.time_steps, self.ax_list, label="Ax", color="g")
+        # self.axs[1].set_xlabel("Time Steps")
+        # self.axs[1].set_ylabel("Acceleration")
+        # self.axs[1].legend()
+        # self.axs[1].set_title("Accelerations")
+
+        # self.axs[3].cla()
+        # self.axs[3].plot(self.time_steps, self.desired_theta_list, label="Desired", color="g")
+        # self.axs[3].plot(self.time_steps, self.current_pitch_list, label="Current", color="m")
+        # self.axs[3].set_xlabel("Time Steps")
+        # self.axs[3].set_ylabel("Pitch")
+        # self.axs[3].legend()
+        # self.axs[3].set_title("Pitch")
+
+        self.axs.cla()
+
+        # Convert to NumPy before plotting
+        desired_theta_np = self.to_numpy(self.desired_theta_list)
+        current_pitch_np = self.to_numpy(self.current_pitch_list)
+
+        self.axs.plot(self.time_steps, desired_theta_np, label="Desired", color="g")
+        self.axs.plot(self.time_steps, current_pitch_np, label="Current", color="m")
+        
+        self.axs.set_xlabel("Time Steps")
+        self.axs.set_ylabel("Pitch")
+        self.axs.legend()
+        self.axs.set_title("Pitch [degrees]: When forward[backward] start, should be negative[positive]. When forward[backward] stop, should be positive[negative].")
+
+        plt.pause(0.01)  # Refresh the plot in real-time
+
+    def show_plot(self):
+        plt.ioff()
+        plt.show()
 
     def check_and_sanitize_observations(self):
         """
@@ -1148,6 +1204,28 @@ class LeggedSfEnv:
                 self.random_pos[env_idx] = self.random_pos[0]
                 self.obs_buf[env_idx] =  copy.deepcopy(self.zero_obs)
                 self.privileged_obs_buf[env_idx] =  copy.deepcopy(self.zero_privileged_obs)
+
+    def check_and_reset_observations(self):
+        """
+        Detect NaN/Inf in self.obs_buf / self.privileged_obs_buf.
+        If found, mark those environments as done so that they get reset.
+        Optionally replace the offending observations to prevent downstream issues.
+        """
+        # 1) Identify environments with any NaN or Inf entries
+        bad_envs = torch.any(~torch.isfinite(self.obs_buf), dim=1) \
+                | torch.any(~torch.isfinite(self.privileged_obs_buf), dim=1)
+
+        # 2) If we find any invalid entries, handle them
+        if bad_envs.any():
+            num_bad = bad_envs.sum().item()
+            print(f"WARNING: {num_bad} envs have invalid observations -> resetting them.")
+
+            # Mark these environments as done so they will be reset at the next step call
+            self.reset_buf[bad_envs] = True
+
+            # Optionally, overwrite their observations to avoid propagating NaNs
+            self.obs_buf[bad_envs] = self.zero_obs
+            self.privileged_obs_buf[bad_envs] = self.zero_privileged_obs
 
 
     def compute_rewards(self):
@@ -1328,7 +1406,9 @@ class LeggedSfEnv:
                 torch.mean(self.episode_sums[key][envs_idx]).item() / self.env_cfg["episode_length_s"]
             )
             self.episode_sums[key][envs_idx] = 0.0
-        self._resample_commands(envs_idx)
+        # self._resample_commands(envs_idx)
+        reset_flag = True
+        self._resample_commands_gaussian_acc(envs_idx, reset_flag)
         if self.env_cfg['send_timeouts']:
             self.extras['time_outs'] = self.time_out_buf
 
@@ -1563,14 +1643,6 @@ class LeggedSfEnv:
         # Penalize changes in actions
         return torch.sum(torch.square(self.last_actions - self.actions), dim=1)
 
-    # def _reward_action_rate_2nd_order(self):
-    #     # Penalize changes in actions
-    #     return torch.sum(torch.square(self.second_last_actions - 2*self.last_actions + self.actions), dim=1)
-
-    def _reward_similar_to_default(self):
-        # Penalize joint poses far away from default pose
-        return torch.sum(torch.abs(self.dof_pos - self.default_dof_pos), dim=1)
-
     def _reward_base_height(self):
         # Penalize base height away from target
         return torch.square(self.base_pos[:, 2] - self.reward_cfg["base_height_target"])
@@ -1587,6 +1659,62 @@ class LeggedSfEnv:
         # Sum over those links to get # of collisions per environment
         return collisions.sum(dim=1)
 
+
+    def _reward_orientation(self):
+        # Penalize non flat base orientation
+        return torch.sum(torch.square(self.projected_gravity[:, :2]), dim=1)
+
+
+    def _reward_dof_pos_limits(self):
+        # Penalize dof positions too close to the limit
+        out_of_limits = -(self.dof_pos - self.dof_pos_limits[:, 0]).clip(max=0.) # lower limit
+        out_of_limits += (self.dof_pos - self.dof_pos_limits[:, 1]).clip(min=0.)
+        return torch.sum(out_of_limits, dim=1)
+
+    def _reward_dof_acc(self):
+        # Penalize dof accelerations
+        return torch.sum(torch.square((self.last_dof_vel - self.dof_vel) / self.dt), dim=1)
+
+    def _reward_torques(self):
+        # Penalize torques
+        return torch.sum(torch.square(self.torques), dim=1)
+    
+    def _reward_slosh_free(self):
+        # 1. Compute raw a_x, a_z
+        ax = (self.base_lin_vel_x - self.last_base_lin_vel_x) / (1 / self.linvel_update_actual_freq)
+        az = -9.8 + (self.base_lin_vel_z - self.last_base_lin_vel_z) / (1 / self.linvel_update_actual_freq)
+        
+        # 2. Exponential smoothing
+        self.ax_filtered = self.alpha * self.ax_filtered + (1.0 - self.alpha) * ax
+        self.az_filtered = self.alpha * self.az_filtered + (1.0 - self.alpha) * az
+        
+        # 3. Use the filtered values
+        ax_smooth = self.ax_filtered * self.ax_scale
+        az_smooth = self.az_filtered * self.az_scale
+
+        # self.smoothed_ax = ax_smooth
+
+        desired_pitch = torch.atan2(-ax_smooth, -az_smooth)
+        desired_pitch_degrees = torch.rad2deg(desired_pitch)
+
+        # Compute the squared error between desired and current pitch angles
+        # error = torch.sum(torch.square(desired_pitch_degrees - self.rot_y)) # sum -> too gig
+        error = torch.mean(torch.square(desired_pitch_degrees - self.rot_y))
+
+        # return torch.exp(-error / self.reward_cfg["tracking_sigma"]) # zero -> not noticed
+        return - error
+    
+    
+    def _reward_similar_to_default(self):
+        # Penalize joint poses far away from default pose
+        return torch.sum(torch.abs(self.dof_pos - self.default_dof_pos), dim=1)
+
+
+    # def _reward_action_rate_2nd_order(self):
+    #     # Penalize changes in actions
+    #     return torch.sum(torch.square(self.second_last_actions - 2*self.last_actions + self.actions), dim=1)
+
+    
     # def _reward_contact_no_vel(self):
     #     # Penalize contact with no velocity
     #     contact = torch.norm(self.contact_forces[:, self.feet_indices, :3], dim=2) > 1.
@@ -1642,29 +1770,11 @@ class LeggedSfEnv:
 
 
 
-    def _reward_orientation(self):
-        # Penalize non flat base orientation
-        return torch.sum(torch.square(self.projected_gravity[:, :2]), dim=1)
-
-
-    def _reward_dof_pos_limits(self):
-        # Penalize dof positions too close to the limit
-        out_of_limits = -(self.dof_pos - self.dof_pos_limits[:, 0]).clip(max=0.) # lower limit
-        out_of_limits += (self.dof_pos - self.dof_pos_limits[:, 1]).clip(min=0.)
-        return torch.sum(out_of_limits, dim=1)
-
     # def _reward_dof_vel_limits(self):
     #     # Penalize dof velocities too close to the limit
     #     # clip to max error = 1 rad/s per joint to avoid huge penalties
     #     return torch.sum((torch.abs(self.dof_vel) - self.dof_vel_limits*self.soft_dof_vel_limit).clip(min=0., max=1.), dim=1)
 
-    def _reward_dof_acc(self):
-        # Penalize dof accelerations
-        return torch.sum(torch.square((self.last_dof_vel - self.dof_vel) / self.dt), dim=1)
-
-    def _reward_torques(self):
-        # Penalize torques
-        return torch.sum(torch.square(self.torques), dim=1)
 
     # def _reward_dof_vel(self):
     #     # Penalize dof velocities
@@ -1696,19 +1806,6 @@ class LeggedSfEnv:
     #     return torch.sum((torch.norm(self.contact_forces[:, self.feet_indices, :], dim=-1) -  self.reward_cfg["max_contact_force"]).clip(min=0.), dim=1)
     
 
-
-    def _reward_slosh_free(self):
-        ax = (self.base_lin_vel_x - self.last_base_lin_vel_x) / (1 / self.linvel_update_actual_freq)
-        az = -9.8 + (self.base_lin_vel_z - self.last_base_lin_vel_z) / (1 / self.linvel_update_actual_freq)
-        ax *= self.ax_scale
-        az *= self.az_scale
-        # Compute the desired pitch angle (theta) in radians
-        desired_pitch = torch.atan2(ax, az)
-
-        # Compute the squared error between desired and current pitch angles
-        error = torch.sum(torch.square(desired_pitch - self.rot_y))
-
-        return torch.exp(-error / self.reward_cfg["tracking_sigma"])
 
     # def _reward_tracking_pitch_ang(self):
     #     pitch_ang_error = torch.square(self.commands[:, 3] - self.rot_y)
