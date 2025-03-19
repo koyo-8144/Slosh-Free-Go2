@@ -329,6 +329,8 @@ class LeggedSfEnv:
         # self.action_rate_scale = self.reward_scales["action_rate"]
         self.linvel_update_freq = self.reward_cfg["linvel_update_freq"]
         self.linvel_update_actual_freq = (1 / self.dt) / self.linvel_update_freq
+        # print("self.linvel_update_actual_freq: ", self.linvel_update_actual_freq)
+        # breakpoint()
         # Suppose you keep these as class attributes:
         self.ax_filtered = 0.0
         self.az_filtered = -9.8  # assuming near gravity at start
@@ -626,7 +628,7 @@ class LeggedSfEnv:
         self.commands[envs_idx, 2] = gs_rand_float(*self.command_cfg["ang_vel_range"], (len(envs_idx),), self.device)
 
         # Possibly call _update_base_lin_vel_x for newly reset envs:
-        dt = self.linvel_update_actual_freq  # or self.env_cfg["some_dt"] if you store it that way
+        dt = 1 / self.linvel_update_actual_freq  # or self.env_cfg["some_dt"] if you store it that way
         # Just do one step of random acceleration:
         ax_sampled = torch.randn((len(envs_idx),), device=self.device) * self.acc_sigma
         # This way of sampling can prevent ax_sampled from being zero many times,
@@ -1051,8 +1053,10 @@ class LeggedSfEnv:
 
         if PLOT_PITCH:
             # 1. Compute raw a_x, a_z
-            ax = (self.base_lin_vel_x - self.last_base_lin_vel_x) / (1 / self.linvel_update_actual_freq)
-            az = -9.8 + (self.base_lin_vel_z - self.last_base_lin_vel_z) / (1 / self.linvel_update_actual_freq)
+            # ax = (self.base_lin_vel_x - self.last_base_lin_vel_x) / (1 / self.linvel_update_actual_freq)
+            # az = -9.8 + (self.base_lin_vel_z - self.last_base_lin_vel_z) / (1 / self.linvel_update_actual_freq)
+            ax = (self.base_lin_vel_x - self.last_base_lin_vel_x) / self.dt
+            az = -9.8 + (self.base_lin_vel_z - self.last_base_lin_vel_z) / self.dt
             
             # 2. Exponential smoothing
             self.ax_filtered = self.alpha * self.ax_filtered + (1.0 - self.alpha) * ax

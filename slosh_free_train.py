@@ -187,7 +187,7 @@ def get_cfgs():
         # "base_height_start_step": 100,
         "min_pitch_num": 5.0,
         "action_rate_weight_decay_rate": 0.5,
-        "linvel_update_freq": 1,
+        "linvel_update_freq": 10.0,
         "alpha": 0.0,
         "reward_scales": {
             # # v2
@@ -201,13 +201,16 @@ def get_cfgs():
             "lin_vel_z": -2.0,
             "ang_vel_xy": -0.05,
             "base_height": -30.0,
-            "orientation": -0.1,
+            # "orientation": -0.1,
             "collision": -1.0,
-            "dof_pos_limits": -10.0,
+            # "dof_pos_limits": -10.0,
             "torques": -1e-5,
             "dof_acc": -2.5e-7,
             "action_rate": -0.01,
+            # "slosh_free": 0.015,
             "slosh_free": 0.015,
+            "dof_pos_limits": 0.0,
+            "orientation": -0.0,
         },
     }
     command_cfg = {
@@ -224,7 +227,7 @@ def get_cfgs():
         "achieve_rate": 0.9,
         "increase_rate": 0.1,
         "acc_sigma": 0.2,    
-        "sign_flip_rate": 0.1,    
+        "sign_flip_rate": 0.0,    
     }
     noise_cfg = {
         "add_noise": True,
