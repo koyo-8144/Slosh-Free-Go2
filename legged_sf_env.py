@@ -16,7 +16,6 @@ import matplotlib.pyplot as plt
 PLOT_PITCH = 0
 
 
-
 class LeggedSfEnv:
     def __init__(self, num_envs, env_cfg, obs_cfg, noise_cfg, reward_cfg, command_cfg, terrain_cfg, show_viewer=False, device="cuda"):
         self.device = torch.device(device)
@@ -85,7 +84,7 @@ class LeggedSfEnv:
 
         self.show_vis = show_viewer
         self.selected_robot = 0
-        if show_viewer:
+        if show_viewer: # This one
             # self.cam_0 = self.scene.add_camera(
             #     res=(640, 480),
             #     pos=(5.0, 0.0, 2.5),
@@ -94,7 +93,8 @@ class LeggedSfEnv:
             #     GUI=show_viewer        
             # )
             self.cam_0 = self.scene.add_camera(
-                res=(640, 480),
+                # res=(640, 480),
+                res=(1280, 960),
                 pos=(0.0, 0.0, 60.0),  # Directly above
                 lookat=(0.0, 0.0, 0.5),  # Robot or terrain center
                 fov=20,  # Zoom in a bit for better detail
@@ -184,10 +184,27 @@ class LeggedSfEnv:
             ),
         )
 
+        # self.liquid = self.scene.add_entity(
+        #     # viscous liquid
+        #     # material=gs.materials.SPH.Liquid(mu=0.02, gamma=0.02),
+        #     material=gs.materials.SPH.Liquid(),
+        #     morph=gs.morphs.Cylinder(
+        #         pos=(0.0, 0.0, self.base_init_pos[2].cpu().numpy() + 0.025),  # Lowered initial position
+        #         height=0.04,  # Reduced height to fit inside boundary
+        #         radius=0.025,  # Adjusted radius for better containment
+        #     ),
+        #     surface=gs.surfaces.Default(
+        #         color=(0.4, 0.8, 1.0),
+        #         vis_mode="particle",
+        #         # vis_mode="recon",
+        #     ),
+        # )
+
         self.envs_origins = torch.zeros((self.num_envs, 7), device=self.device)
 
         # build
         self.scene.build(n_envs=num_envs)
+
 
         # names to indices
         self.motor_dofs = [self.robot.get_joint(name).dof_idx_local for name in self.env_cfg["dof_names"]]
@@ -1008,7 +1025,7 @@ class LeggedSfEnv:
                 (self.dof_pos - self.default_dof_pos) * self.obs_scales["dof_pos"],  # 12
                 self.dof_vel * self.obs_scales["dof_vel"],  # 12
                 self.actions,  # 12
-                self.rot_y, # 1
+                # self.rot_y, # 1
                 # sin_phase, #4
                 # cos_phase #4
             ],
@@ -1024,7 +1041,7 @@ class LeggedSfEnv:
                 (self.dof_pos - self.default_dof_pos) * self.obs_scales["dof_pos"],  # 12
                 self.dof_vel * self.obs_scales["dof_vel"],  # 12
                 self.actions,  # 12
-                self.rot_y, # 1
+                # self.rot_y, # 1
                 # sin_phase, #4
                 # cos_phase #4
             ],

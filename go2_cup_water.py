@@ -296,6 +296,7 @@ scene = gs.Scene(
     show_viewer=True,
 )
 
+
 ########################## entities ##########################
 plane = scene.add_entity(
     morph=gs.morphs.Plane(),

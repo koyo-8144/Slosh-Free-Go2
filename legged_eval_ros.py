@@ -9,6 +9,8 @@ import numpy as np
 from legged_env import LeggedEnv
 from legged_sf_env import LeggedSfEnv
 from rsl_rl.runners import OnPolicyRunner
+import os
+os.environ['PYOPENGL_PLATFORM'] = 'glx'
 import genesis as gs
 import re
 import copy
@@ -21,7 +23,8 @@ class Go2EvaluationNode(Node):
         self.device="cuda:0"
 
         # Declare and retrieve parameters
-        self.declare_parameter('exp_name', 'go2_slosh_free_v3')
+        # self.declare_parameter('exp_name', 'go2_slosh_free_v3')
+        self.declare_parameter('exp_name', 'Slosh-Free-Go2-Logs')
         self.declare_parameter('ckpt', 10000)
 
         self.exp_name = self.get_parameter('exp_name').value
@@ -32,7 +35,7 @@ class Go2EvaluationNode(Node):
         self.timer = self.create_timer(0.1, self.control_loop)
 
         # Initialize Genesis and environment
-        gs.init()
+        gs.init(backend=gs.cuda)
 
         log_dir = f"/home/psxkf4/Genesis/logs/{self.exp_name}"
         # Get all subdirectories in the base log directory
@@ -40,11 +43,14 @@ class Go2EvaluationNode(Node):
         # Sort subdirectories by their names (assuming they are timestamped in lexicographical order)
         most_recent_subdir = sorted(subdirs)[-1] if subdirs else None
         log_dir = os.path.join(log_dir, most_recent_subdir)
-        # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v2/20250312_210630"
+        # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250317_172228"
         env_cfg, obs_cfg, noise_cfg, reward_cfg, command_cfg, train_cfg, terrain_cfg = pickle.load(open(f"{log_dir}/cfgs.pkl", "rb"))
         # env_cfg, obs_cfg, noise_cfg, reward_cfg, command_cfg, terrain_cfg = get_cfgs()
         # train_cfg = get_train_cfg("slr", "100000")
         reward_cfg["reward_scales"] = {}
+        # print("reward_cfg: ", reward_cfg)
+        # breakpoint()
+        env_cfg["robot_mjcf"] = "xml/go2/go2.xml"
 
         self.env = LeggedSfEnv(
             num_envs=1,
@@ -71,6 +77,8 @@ class Go2EvaluationNode(Node):
         # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250314_204308/model_10000.pt"
         # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250317_024856/model_8000.pt"
         # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250317_102932/model_2000.pt"
+        # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250318_191339/model_4000.pt"
+        # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250317_172228/model_10000.pt"
         runner.load(resume_path)
         # resume_path = os.path.join(log_dir, f"model_{args.ckpt}.pt")
         # runner.load(resume_path)
@@ -78,7 +86,6 @@ class Go2EvaluationNode(Node):
         # export policy as a jit module (used to run it from C++)
         EXPORT_POLICY = True
         if EXPORT_POLICY:
-            log_dirh = "/home/psxkf4/Genesis/examples/locomotion/unitree"
             path = os.path.join(log_dir, 'exported', 'policies')
             # export_policy_as_jit(runner.alg.actor_critic, path)
             os.makedirs(path, exist_ok=True)
