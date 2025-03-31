@@ -679,6 +679,8 @@ class LeggedSfEnv:
             self.desired_theta_list = []
             self.current_pitch_list = []
             self.error_list = []
+            self.lin_vel_x_list = []
+            self.last_lin_vel_x_list = []
             self.ax_list = []
             self.az_list = []
             self.heigh_list = []
@@ -705,18 +707,26 @@ class LeggedSfEnv:
             plt.ion()
             self.fig3, self.axs3 = plt.subplots(1, 1, figsize=(4, 4))
 
-            self.axs3.set_title("Acc x and z")
+            self.axs3.set_title("Lin Vel Current and Last")
             self.axs3.set_xlabel("Time Steps")
-            self.axs3.set_ylabel("Acc")
-            self.axs3.legend(["Acc x", "Acc z"])
+            self.axs3.set_ylabel("Lin Vel")
+            self.axs3.legend(["Current", "Last"])
 
             plt.ion()
             self.fig4, self.axs4 = plt.subplots(1, 1, figsize=(4, 4))
 
-            self.axs4.set_title("Base Height")
+            self.axs4.set_title("Acc x and z")
             self.axs4.set_xlabel("Time Steps")
-            self.axs4.set_ylabel("Height")
-            self.axs4.legend(["Height"])
+            self.axs4.set_ylabel("Acc")
+            self.axs4.legend(["Acc x", "Acc z"])
+
+            plt.ion()
+            self.fig5, self.axs5 = plt.subplots(1, 1, figsize=(4, 4))
+
+            self.axs5.set_title("Base Height")
+            self.axs5.set_xlabel("Time Steps")
+            self.axs5.set_ylabel("Height")
+            self.axs5.legend(["Height"])
 
 
 
@@ -1343,6 +1353,7 @@ class LeggedSfEnv:
             # ax = (self.base_lin_vel_x - self.last_base_lin_vel_x) / self.dt
             # az = -9.8 + (self.base_lin_vel_z - self.last_base_lin_vel_z) / self.dt
             
+            
             # 2. Exponential smoothing
             self.ax_filtered = self.alpha * self.ax_filtered + (1.0 - self.alpha) * ax
             self.az_filtered = self.alpha * self.az_filtered + (1.0 - self.alpha) * az
@@ -1457,6 +1468,10 @@ class LeggedSfEnv:
             # ax = (self.base_lin_vel_x - self.last_base_lin_vel_x) / self.dt
             # az = -9.8 + (self.base_lin_vel_z - self.last_base_lin_vel_z) / self.dt
             
+            # print("raw ax: ", ax)
+
+            # print(f"ax = {self.alpha} * {self.ax_filtered} + {1.0 - self.alpha} * {ax}")
+
             # 2. Exponential smoothing
             self.ax_filtered = self.alpha * self.ax_filtered + (1.0 - self.alpha) * ax
             self.az_filtered = self.alpha * self.az_filtered + (1.0 - self.alpha) * az
@@ -1465,7 +1480,7 @@ class LeggedSfEnv:
             ax_smooth = self.ax_filtered * self.ax_scale
             az_smooth = self.az_filtered * self.az_scale
 
-            print("ax: ", ax_smooth)
+            # print("ax: ", ax_smooth)
 
             desired_pitch = torch.atan2(-ax_smooth, -az_smooth)
             desired_pitch_degrees = torch.rad2deg(desired_pitch)
@@ -1473,11 +1488,15 @@ class LeggedSfEnv:
             desired_pitch_degrees = desired_pitch_degrees.item()
             rot_y = self.rot_y.item()
             error = abs(desired_pitch_degrees - rot_y)
+            linvel_x = self.base_lin_vel_x.item()
+            last_linvel_x = self.last_base_lin_vel_x.item()
             height = self.base_pos[:, 2].item()
 
             self.append_limited(self.desired_theta_list, desired_pitch_degrees)
             self.append_limited(self.current_pitch_list, rot_y)
             self.append_limited(self.error_list, error)
+            self.append_limited(self.lin_vel_x_list, linvel_x)
+            self.append_limited(self.last_lin_vel_x_list, last_linvel_x)
             self.append_limited(self.ax_list, ax_smooth)
             self.append_limited(self.az_list, az_smooth)
             self.append_limited(self.heigh_list, height)
@@ -1492,6 +1511,10 @@ class LeggedSfEnv:
                 file_name = self.folder_name + "_error.png"
                 error_path = os.path.join(base_path, file_name)
 
+                base_path = "/home/psxkf4/Genesis/logs/paper/data/linvel_x"
+                file_name = self.folder_name + "_linvel_x.png"
+                linvel_path = os.path.join(base_path, file_name)
+
                 base_path = "/home/psxkf4/Genesis/logs/paper/data/acc"
                 file_name = self.folder_name + "_acc.png"
                 acc_path = os.path.join(base_path, file_name)
@@ -1504,7 +1527,7 @@ class LeggedSfEnv:
                 file_name = self.folder_name + "_stats.txt"
                 stats_path = os.path.join(base_path, file_name)
 
-                self.update_plot_pitch_error_acc_height(pitch_path, error_path, acc_path, height_path, stats_path)
+                self.update_plot_pitch_error_acc_height(pitch_path, error_path, linvel_path, acc_path, height_path, stats_path)
 
             # if self.a_count == 10000:
             #     self.show_plot()
@@ -1558,7 +1581,7 @@ class LeggedSfEnv:
 
         plt.pause(0.01)  # For real-time updates
 
-    def update_plot_pitch_error_acc_height(self, pitch_path=None, error_path=None, acc_path=None, height_path=None, stats_path=None):
+    def update_plot_pitch_error_acc_height(self, pitch_path=None, error_path=None,linvel_path=None, acc_path=None, height_path=None, stats_path=None):
         self.axs1.cla()
 
         # Convert to NumPy before plotting
@@ -1581,22 +1604,37 @@ class LeggedSfEnv:
         self.axs2.legend()
         # self.axs2.set_title("Pitch Error")
 
+
+        # Convert to NumPy before plotting
+        lin_vel_x_np = self.to_numpy(self.lin_vel_x_list)
+        last_lin_vel_x_np = self.to_numpy(self.last_lin_vel_x_list)
+
+        self.axs3.cla()
+        self.axs3.plot(self.time_steps, lin_vel_x_np, label="Current", color="r", linestyle='--')
+        self.axs3.plot(self.time_steps, last_lin_vel_x_np, label="Last", color="b")
+        self.axs3.set_xlabel("Time Steps")
+        self.axs3.set_ylabel("Velocity [m/s]")
+        self.axs3.set_ylim(-5.0, 5.0)
+        self.axs3.legend()
+
         # Convert to NumPy before plotting
         ax_np = self.to_numpy(self.ax_list)
         az_np = self.to_numpy(self.az_list)
 
-        self.axs3.plot(self.time_steps, ax_np, label="Acc x", color="b", linestyle='--')
-        self.axs3.plot(self.time_steps, az_np, label="Acc z", color="y")
-        self.axs3.set_xlabel("Time Steps")
-        self.axs3.set_ylabel("Acc [m/s^2]")
-        self.axs3.set_ylim(-14.0, 6.0)
-        self.axs3.legend()
-
-        self.axs4.plot(self.time_steps, self.heigh_list, label="Height", color="k")
+        self.axs4.cla()
+        self.axs4.plot(self.time_steps, ax_np, label="Acc x", color="b", linestyle='--')
+        self.axs4.plot(self.time_steps, az_np, label="Acc z", color="y")
         self.axs4.set_xlabel("Time Steps")
-        self.axs4.set_ylabel("Base Height [m]")
-        self.axs4.set_ylim(0.0, 0.75)
+        self.axs4.set_ylabel("Acc [m/s^2]")
+        self.axs4.set_ylim(-14.0, 6.0)
         self.axs4.legend()
+
+        self.axs5.cla()
+        self.axs5.plot(self.time_steps, self.heigh_list, label="Height", color="k")
+        self.axs5.set_xlabel("Time Steps")
+        self.axs5.set_ylabel("Base Height [m]")
+        self.axs5.set_ylim(0.0, 0.75)
+        self.axs5.legend()
 
         # Compute stats for pitch error
         error_np = self.to_numpy(self.error_list)
@@ -1616,12 +1654,13 @@ class LeggedSfEnv:
                 f.write(f"Maximum: {max_error:.6f}\n")
             print(f"Pitch error stats saved to {stats_path}")
 
-        if pitch_path and error_path and acc_path and height_path:
+        if pitch_path and error_path and linvel_path and acc_path and height_path:
             print("PLOTS ARE SAVED")
             self.fig1.savefig(pitch_path, dpi=300, bbox_inches='tight')
             self.fig2.savefig(error_path, dpi=300, bbox_inches='tight')
-            self.fig3.savefig(acc_path, dpi=300, bbox_inches='tight')
-            self.fig4.savefig(height_path, dpi=300, bbox_inches='tight')
+            self.fig3.savefig(linvel_path, dpi=300, bbox_inches='tight')
+            self.fig4.savefig(acc_path, dpi=300, bbox_inches='tight')
+            self.fig5.savefig(height_path, dpi=300, bbox_inches='tight')
 
         plt.pause(0.01)
 
