@@ -15,7 +15,7 @@ import genesis as gs
 import re
 import copy
 
-
+PITCH_COMMAND = 0
 
 class Go2EvaluationNode(Node):
     def __init__(self):
@@ -24,7 +24,7 @@ class Go2EvaluationNode(Node):
 
         # Declare and retrieve parameters
         # self.declare_parameter('exp_name', 'go2_slosh_free_v3')
-        self.declare_parameter('exp_name', 'Slosh-Free-Go2-Logs')
+        self.declare_parameter('exp_name', 'paper')
         self.declare_parameter('ckpt', 10000)
 
         self.exp_name = self.get_parameter('exp_name').value
@@ -43,7 +43,16 @@ class Go2EvaluationNode(Node):
         # Sort subdirectories by their names (assuming they are timestamped in lexicographical order)
         most_recent_subdir = sorted(subdirs)[-1] if subdirs else None
         log_dir = os.path.join(log_dir, most_recent_subdir)
-        # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250317_172228"
+
+        # log_dir = "/home/psxkf4/Genesis/logs/paper/no_slosh_free_MLP"
+        # log_dir = "/home/psxkf4/Genesis/logs/paper/slosh_free_acc_profile_sigma03_LSTM"
+        # log_dir = "/home/psxkf4/Genesis/logs/paper/slosh_free_acc_profile_sigma03_MLP"
+        # log_dir = "/home/psxkf4/Genesis/logs/paper/slosh_free_no_acc_profile_LSTM"
+        log_dir = "/home/psxkf4/Genesis/logs/paper/slosh_free_no_acc_profile_MLP"
+        # log_dir = "/home/psxkf4/Genesis/logs/paper/slosh_free_no_acc_profile_MLP_pitch_obs"
+
+        folder_name = log_dir.split("/")[-1]
+
         env_cfg, obs_cfg, noise_cfg, reward_cfg, command_cfg, train_cfg, terrain_cfg = pickle.load(open(f"{log_dir}/cfgs.pkl", "rb"))
         # env_cfg, obs_cfg, noise_cfg, reward_cfg, command_cfg, terrain_cfg = get_cfgs()
         # train_cfg = get_train_cfg("slr", "100000")
@@ -60,6 +69,7 @@ class Go2EvaluationNode(Node):
             reward_cfg=reward_cfg,
             command_cfg=command_cfg,
             terrain_cfg=terrain_cfg,
+            folder_name=folder_name,
             show_viewer=True,
         )
 
@@ -74,11 +84,14 @@ class Go2EvaluationNode(Node):
         model_file = max(model_files, key=lambda x: x[1])[0]
 
         resume_path = os.path.join(log_dir, model_file)
-        # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250314_204308/model_10000.pt"
-        # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250317_024856/model_8000.pt"
-        # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250317_102932/model_2000.pt"
-        # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250318_191339/model_4000.pt"
-        # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250317_172228/model_10000.pt"
+
+        # resume_path = "/home/psxkf4/Genesis/logs/paper/no_slosh_free_MLP/model_10000.pt"
+        # resume_path = "/home/psxkf4/Genesis/logs/paper/slosh_free_acc_profile_sigma03_LSTM/model_10000.pt"
+        # resume_path = "/home/psxkf4/Genesis/logs/paper/slosh_free_acc_profile_sigma03_MLP/model_10000.pt"
+        # resume_path = "/home/psxkf4/Genesis/logs/paper/slosh_free_no_acc_profile_LSTM/model_10000.pt"
+        resume_path = "/home/psxkf4/Genesis/logs/paper/slosh_free_no_acc_profile_MLP/model_8000.pt"
+        # resume_path = "/home/psxkf4/Genesis/logs/paper/slosh_free_no_acc_profile_MLP_pitch_obs/model_6000.pt"
+        
         runner.load(resume_path)
         # resume_path = os.path.join(log_dir, f"model_{args.ckpt}.pt")
         # runner.load(resume_path)
@@ -101,11 +114,11 @@ class Go2EvaluationNode(Node):
             loaded_model.save(versionless_path)
             print("Model successfully converted to version-less format: ", versionless_path)
 
-        self.teleop_commands = torch.zeros((1, 3), device=self.device)  # 3 for [x, y, z]
-        # self.teleop_commands_scale = torch.tensor(
-        #     [2.0, 2.0, 0.25],
-        #     device=self.device
-        # )
+        if PITCH_COMMAND:
+            self.teleop_commands = torch.zeros((1, 4), device=self.device) 
+        else:
+            self.teleop_commands = torch.zeros((1, 3), device=self.device)  # 3 for [x, y, z]
+
         self.obs, _ = self.env.reset()
 
 

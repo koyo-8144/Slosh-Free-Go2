@@ -12,18 +12,33 @@ def gs_rand_float(lower, upper, shape, device):
     return (upper - lower) * torch.rand(size=shape, device=device) + lower
 
 import matplotlib.pyplot as plt
+import os
 
 PLOT_PITCH = 0
+PLOT_ACC = 0
+PLOT_ERROR = 0
+PLOT_PITCH_ERROR_ACC_HEIGHT = 1
+
+ACC_PROFILE_RESAMPLE = 0
+PREDEFINED_RESAMPLE = 0
+PREDEFINED_RESAMPLE_TRY = 1
+
+PITCH_COMMAND_TRAIN = 0
+DESIRED_PITCH_COMMAND = 0
+
+LATERAL_CAM = 1
+VIDEO_RECORD = 0
 
 
 class LeggedSfEnv:
-    def __init__(self, num_envs, env_cfg, obs_cfg, noise_cfg, reward_cfg, command_cfg, terrain_cfg, show_viewer=False, device="cuda"):
+    def __init__(self, num_envs, env_cfg, obs_cfg, noise_cfg, reward_cfg, command_cfg, terrain_cfg, folder_name, show_viewer=False, device="cuda"):
         self.device = torch.device(device)
         self.num_envs = num_envs
         self.num_obs = obs_cfg["num_obs"]
         self.num_privileged_obs = obs_cfg["num_privileged_obs"]
         self.num_actions = env_cfg["num_actions"]
         self.num_commands = command_cfg["num_commands"]
+        self.folder_name = folder_name
 
         # self.num_props=env_cfg["n_proprio"],
         # self.num_hist=env_cfg["history_len"],
@@ -84,7 +99,7 @@ class LeggedSfEnv:
 
         self.show_vis = show_viewer
         self.selected_robot = 0
-        if show_viewer: # This one
+        if show_viewer:
             # self.cam_0 = self.scene.add_camera(
             #     res=(640, 480),
             #     pos=(5.0, 0.0, 2.5),
@@ -184,27 +199,10 @@ class LeggedSfEnv:
             ),
         )
 
-        # self.liquid = self.scene.add_entity(
-        #     # viscous liquid
-        #     # material=gs.materials.SPH.Liquid(mu=0.02, gamma=0.02),
-        #     material=gs.materials.SPH.Liquid(),
-        #     morph=gs.morphs.Cylinder(
-        #         pos=(0.0, 0.0, self.base_init_pos[2].cpu().numpy() + 0.025),  # Lowered initial position
-        #         height=0.04,  # Reduced height to fit inside boundary
-        #         radius=0.025,  # Adjusted radius for better containment
-        #     ),
-        #     surface=gs.surfaces.Default(
-        #         color=(0.4, 0.8, 1.0),
-        #         vis_mode="particle",
-        #         # vis_mode="recon",
-        #     ),
-        # )
-
         self.envs_origins = torch.zeros((self.num_envs, 7), device=self.device)
 
         # build
         self.scene.build(n_envs=num_envs)
-
 
         # names to indices
         self.motor_dofs = [self.robot.get_joint(name).dof_idx_local for name in self.env_cfg["dof_names"]]
@@ -297,6 +295,81 @@ class LeggedSfEnv:
 
         self.init_camera_params()
 
+        if PREDEFINED_RESAMPLE:
+            self.forward_start_len = 15
+            self.forward_12_len = 50
+            self.forward_8_len = 50
+            self.forward_4_len = 0
+            self.forward_0_len = 50
+            self.backward_12_len = 0
+            self.backward_8_len = 0
+            self.backward_4_len = 0
+            self.backward_0_len = 0
+            self.plot_save_len = (self.forward_start_len + self.forward_12_len + self.forward_8_len + self.forward_4_len + self.forward_0_len 
+                                    + self.backward_12_len + self.backward_8_len + self.backward_4_len + self.backward_0_len)
+
+            self.forward_start_count = 0
+            self.forward_12_count = 0
+            self.forward_8_count = 0
+            self.forward_4_count = 0
+            self.forward_0_count = 0
+            self.backward_12_count = 0
+            self.backward_8_count = 0
+            self.backward_4_count = 0
+            self.backward_0_count = 0
+
+            self.forward_start = True
+            self.forward_12 = True
+            self.forward_8 = True
+            self.forward_4 = True
+            self.forward_0 = True
+            self.backward_12 = True
+            self.backward_8 = True
+            self.backward_4 = True
+            self.backward_0 = True
+
+            # print("START VEDEO RECORDING")
+            # self.start_recording()
+        
+        if PREDEFINED_RESAMPLE_TRY:
+            self.forward_start_len = 50
+            self.forward_12_len = 50
+            self.forward_8_len = 50
+            self.forward_4_len = 0
+            self.forward_0_len = 50
+            self.backward_12_len = 50
+            self.backward_8_len = 30
+            self.backward_4_len = 0
+            self.backward_0_len = 30
+            self.plot_save_len = (self.forward_start_len + self.forward_12_len + self.forward_8_len + self.forward_4_len + self.forward_0_len 
+                                    + self.backward_12_len + self.backward_8_len + self.backward_4_len + self.backward_0_len)
+
+            self.forward_start_count = 0
+            self.forward_12_count = 0
+            self.forward_8_count = 0
+            self.forward_4_count = 0
+            self.forward_0_count = 0
+            self.backward_12_count = 0
+            self.backward_8_count = 0
+            self.backward_4_count = 0
+            self.backward_0_count = 0
+
+            self.forward_start = True
+            self.forward_12 = True
+            self.forward_8 = True
+            self.forward_4 = True
+            self.forward_0 = True
+            self.backward_12 = True
+            self.backward_8 = True
+            self.backward_4 = True
+            self.backward_0 = True
+
+        if VIDEO_RECORD:
+            self.video_record_count = 0
+            self.video_record_len = 100
+            print("START VEDEO RECORDING")
+            self.start_recording()
+
 
 
     def init_buffers(self):
@@ -353,11 +426,12 @@ class LeggedSfEnv:
         self.az_filtered = -9.8  # assuming near gravity at start
         # alpha controls how much new data matters vs. old data (0 < alpha < 1)
         self.alpha = self.reward_cfg["alpha"]
-        self.acc_sigma = self.command_cfg["acc_sigma"]
-        self.sign_flip_rate = self.command_cfg["sign_flip_rate"]
-        # self.commanded_lin_vel_x_walking = torch.zeros((self.num_envs,), device=self.device, dtype=gs.tc_float)
-        # self.ax_sampled = torch.zeros((self.num_envs,), device=self.device, dtype=gs.tc_float)
-        self.smoothed_ax = torch.zeros((self.num_envs,), device=self.device, dtype=gs.tc_float)
+        if ACC_PROFILE_RESAMPLE:
+            self.acc_sigma = self.command_cfg["acc_sigma"]
+            self.sign_flip_rate = self.command_cfg["sign_flip_rate"]
+            # self.commanded_lin_vel_x_walking = torch.zeros((self.num_envs,), device=self.device, dtype=gs.tc_float)
+            # self.ax_sampled = torch.zeros((self.num_envs,), device=self.device, dtype=gs.tc_float)
+            self.smoothed_ax = torch.zeros((self.num_envs,), device=self.device, dtype=gs.tc_float)
 
         self.base_ang_vel = torch.zeros((self.num_envs, 3), device=self.device, dtype=gs.tc_float)
         self.projected_gravity = torch.zeros((self.num_envs, 3), device=self.device, dtype=gs.tc_float)
@@ -374,13 +448,20 @@ class LeggedSfEnv:
         self.time_out_buf = torch.zeros((self.num_envs,), device=self.device, dtype=gs.tc_int)
         self.out_of_bounds_buf = torch.zeros((self.num_envs,), device=self.device, dtype=gs.tc_int)
         self.commands = torch.zeros((self.num_envs, self.num_commands), device=self.device, dtype=gs.tc_float)
-        self.commands_scale = torch.tensor(
+        
+        if PITCH_COMMAND_TRAIN or DESIRED_PITCH_COMMAND:
+            self.commands_scale = torch.tensor(
+                [self.obs_scales["lin_vel"], self.obs_scales["lin_vel"], self.obs_scales["ang_vel"], self.obs_scales["pitch_ang"]],
+                device=self.device,
+                dtype=gs.tc_float,
+            )
+        else:
+            self.commands_scale = torch.tensor(
             [self.obs_scales["lin_vel"], self.obs_scales["lin_vel"], self.obs_scales["ang_vel"]],
-            # [self.obs_scales["lin_vel"], self.obs_scales["lin_vel"], self.obs_scales["ang_vel"], self.obs_scales["pitch_ang"]],
-            # [self.obs_scales["lin_vel"]],
             device=self.device,
             dtype=gs.tc_float,
         )
+
         self.actions = torch.zeros((self.num_envs, self.num_actions), device=self.device, dtype=gs.tc_float)
         self.hip_actions = torch.zeros((self.num_envs, len(self.hip_dofs)), device=self.device, dtype=gs.tc_float)
 
@@ -565,7 +646,80 @@ class LeggedSfEnv:
             # self.axs[2].legend()
             # self.axs[2].set_title("Pitch")
 
-            self.last_base_lin_vel_x_cmd = 0
+        if PLOT_ACC:
+            self.ax_list = []
+            self.az_list = []
+            self.time_steps = []  # Track time steps
+            self.max_points = 500  # Limit number of points to store for performance
+
+            # Initialize the plot
+            plt.ion()
+            self.fig, self.axs = plt.subplots(1, 1, figsize=(4, 4))
+
+            self.axs.set_title("Accelerations")
+            self.axs.set_xlabel("Time Steps")
+            self.axs.set_ylabel("Acceleration")
+            self.axs.legend(["Ax", "Az"])
+
+        if PLOT_ERROR:
+            self.error_list = []
+            self.time_steps = []  # Track time steps
+            self.max_points = 500  # Limit number of points to store for performance
+
+            # Initialize the plot
+            plt.ion()
+            self.fig, self.axs = plt.subplots(1, 1, figsize=(4, 4))
+
+            self.axs.set_title("Pitch Error")
+            self.axs.set_xlabel("Time Steps")
+            self.axs.set_ylabel("Error")
+            self.axs.legend(["Error"])
+        
+        if PLOT_PITCH_ERROR_ACC_HEIGHT:
+            self.desired_theta_list = []
+            self.current_pitch_list = []
+            self.error_list = []
+            self.ax_list = []
+            self.az_list = []
+            self.heigh_list = []
+            self.time_steps = []  # Track time steps
+            self.max_points = 500  # Limit number of points to store for performance
+
+            # Initialize the plot
+            plt.ion()
+            self.fig1, self.axs1 = plt.subplots(1, 1, figsize=(4, 4))
+
+            self.axs1.set_title("Desired and Current Pitch")
+            self.axs1.set_xlabel("Time Steps")
+            self.axs1.set_ylabel("Pitch [degrees]")
+            self.axs1.legend(["Desired theta", "Current Pitch"])
+
+            plt.ion()
+            self.fig2, self.axs2 = plt.subplots(1, 1, figsize=(4, 4))
+
+            self.axs2.set_title("Pitch Error")
+            self.axs2.set_xlabel("Time Steps")
+            self.axs2.set_ylabel("Error [degrees]")
+            self.axs2.legend(["Error"])
+
+            plt.ion()
+            self.fig3, self.axs3 = plt.subplots(1, 1, figsize=(4, 4))
+
+            self.axs3.set_title("Acc x and z")
+            self.axs3.set_xlabel("Time Steps")
+            self.axs3.set_ylabel("Acc")
+            self.axs3.legend(["Acc x", "Acc z"])
+
+            plt.ion()
+            self.fig4, self.axs4 = plt.subplots(1, 1, figsize=(4, 4))
+
+            self.axs4.set_title("Base Height")
+            self.axs4.set_xlabel("Time Steps")
+            self.axs4.set_ylabel("Height")
+            self.axs4.legend(["Height"])
+
+
+
 
     def init_camera_params(self):
         self.whole_view = False
@@ -637,6 +791,29 @@ class LeggedSfEnv:
         self.commands[envs_idx, 1] = gs_rand_float(*self.command_cfg["lin_vel_y_range"], (len(envs_idx),), self.device)
         self.commands[envs_idx, 2] = gs_rand_float(*self.command_cfg["ang_vel_range"], (len(envs_idx),), self.device)
 
+        if PITCH_COMMAND_TRAIN:
+            self.commands[envs_idx, 3] = gs_rand_float(*self.command_cfg["pitch_ang_range"], (len(envs_idx),), self.device)
+
+    def _resample_desired_pitch(self, envs_idx):
+        # 1. Compute raw a_x, a_z
+        ax = (self.base_lin_vel_x - self.last_base_lin_vel_x) / (1 / self.linvel_update_actual_freq)
+        az = -9.8 + (self.base_lin_vel_z - self.last_base_lin_vel_z) / (1 / self.linvel_update_actual_freq)
+        # ax = (self.base_lin_vel_x - self.last_base_lin_vel_x) / self.dt
+        # az = -9.8 + (self.base_lin_vel_z - self.last_base_lin_vel_z) / self.dt
+        
+        # 2. Exponential smoothing
+        self.ax_filtered = self.alpha * self.ax_filtered + (1.0 - self.alpha) * ax
+        self.az_filtered = self.alpha * self.az_filtered + (1.0 - self.alpha) * az
+        
+        # 3. Use the filtered values
+        ax_smooth = self.ax_filtered * self.ax_scale
+        az_smooth = self.az_filtered * self.az_scale
+
+        desired_pitch = torch.atan2(-ax_smooth, -az_smooth)
+        desired_pitch_degrees = torch.rad2deg(desired_pitch)
+
+        self.commands[envs_idx, 3] = desired_pitch_degrees
+
     def _resample_commands_gaussian_acc(self, envs_idx, reset_flag):
         old_lin_vel_x_command = self.commands[envs_idx, 0]
 
@@ -693,6 +870,87 @@ class LeggedSfEnv:
         
         # if not reset_flag: # record for tensorbard only when Go2 is walking
         #     self.commanded_lin_vel_x_walking = self.commands[envs_idx, 0]
+        # print('commanded lin vel x: ', self.commands[envs_idx, 0])
+
+    def _resample_predefined_commands(self):
+        if self.forward_start:
+            print("Starting resample")
+            self.commands[0, 0] = 0.0
+            self.commands[0, 1] = 0.0
+            self.commands[0, 2] = 0.0
+            if self.forward_start_count == self.forward_start_len:
+                self.forward_start = False
+            self.forward_start_count += 1
+        elif self.forward_12:
+            print("Lin Vel X: 1.2")
+            self.commands[0, 0] = 1.2
+            self.commands[0, 1] = 0.0
+            self.commands[0, 2] = 0.0
+            if self.forward_12_count == self.forward_12_len:
+                self.forward_12 = False
+            self.forward_12_count += 1
+        elif self.forward_8:
+            print("Lin Vel X: 0.8")
+            self.commands[0, 0] = 0.8
+            self.commands[0, 1] = 0.0
+            self.commands[0, 2] = 0.0
+            if self.forward_8_count == self.forward_8_len:
+                self.forward_8 = False
+            self.forward_8_count += 1
+        elif self.forward_4:
+            print("Lin Vel X: 0.4")
+            self.commands[0, 0] = 0.4
+            self.commands[0, 1] = 0.0
+            self.commands[0, 2] = 0.0
+            if self.forward_4_count == self.forward_4_len:
+                self.forward_4 = False
+            self.forward_4_count += 1
+        elif self.forward_0:
+            print("Lin Vel X: 0.0")
+            self.commands[0, 0] = 0.0
+            self.commands[0, 1] = 0.0
+            self.commands[0, 2] = 0.0
+            if self.forward_0_count == self.forward_0_len:
+                self.forward_0 = False
+            self.forward_0_count += 1
+        elif self.backward_12:
+            print("Lin Vel X: -1.2")
+            self.commands[0, 0] = -1.2
+            self.commands[0, 1] = 0.0
+            self.commands[0, 2] = 0.0
+            if self.backward_12_count == self.backward_12_len:
+                self.backward_12 = False
+            self.backward_12_count += 1
+        elif self.backward_8:
+            print("Lin Vel X: -0.8")
+            self.commands[0, 0] = -0.8
+            self.commands[0, 1] = 0.0
+            self.commands[0, 2] = 0.0
+            if self.backward_8_count == self.backward_8_len:
+                self.backward_8 = False
+            self.backward_8_count += 1
+        elif self.backward_4:
+            print("Lin Vel X: -0.4")
+            self.commands[0, 0] = -0.4
+            self.commands[0, 1] = 0.0
+            self.commands[0, 2] = 0.0
+            if self.backward_4_count == self.backward_4_len:
+                self.backward_4 = False
+            self.backward_4_count += 1
+        elif self.backward_0:
+            print("Lin Vel X: 0.0")
+            self.commands[0, 0] = 0.0
+            self.commands[0, 1] = 0.0
+            self.commands[0, 2] = 0.0
+            if self.backward_0_count == self.backward_0_len:
+                self.backward_0 = False
+            self.backward_0_count += 1
+
+            # print("STOP VIDEO RECORDING")
+            # base_path = "/home/psxkf4/Genesis/logs/paper/videos"
+            # file_name = self.folder_name + ".mp4"
+            # full_path = os.path.join(base_path, file_name)
+            # self.stop_recording(full_path)
 
 
     def generate_subterrain_grid(self, rows, cols, terrain_types, weights):
@@ -952,8 +1210,6 @@ class LeggedSfEnv:
             device=self.device,
             dtype=gs.tc_float,
         )        
-
-        # print("Base height (better to close to 0.28): ", self.base_pos[:, 2])
         
         # print("episode length: ", self.episode_length_buf)
         # resample commands
@@ -964,9 +1220,15 @@ class LeggedSfEnv:
         )
 
         self.post_physics_step_callback()
-        # self._resample_commands(envs_idx)
-        reset_flag = False
-        self._resample_commands_gaussian_acc(envs_idx, reset_flag)
+        if ACC_PROFILE_RESAMPLE:
+            reset_flag = False
+            self._resample_commands_gaussian_acc(envs_idx, reset_flag)
+        elif DESIRED_PITCH_COMMAND:
+            self._resample_desired_pitch()
+        elif PREDEFINED_RESAMPLE or PREDEFINED_RESAMPLE_TRY:
+            self._resample_predefined_commands()
+        else:
+            self._resample_commands(envs_idx)
         self._randomize_rigids(envs_idx)
         # random push
         self.common_step_counter += 1
@@ -996,6 +1258,12 @@ class LeggedSfEnv:
             self.update_camera_pose()
         else:
             self._render_headless()
+
+        if VIDEO_RECORD:
+            self.video_record_count += 1
+            if self.video_record_count == self.video_record_len:
+                print("STOP VIDEO RECORDING")
+                self.stop_recording("/home/psxkf4/Genesis/logs/paper/videos/run_001.mp4")
 
         return self.obs_buf, self.privileged_obs_buf, self.rew_buf, self.reset_buf, self.extras
 
@@ -1070,10 +1338,10 @@ class LeggedSfEnv:
 
         if PLOT_PITCH:
             # 1. Compute raw a_x, a_z
-            # ax = (self.base_lin_vel_x - self.last_base_lin_vel_x) / (1 / self.linvel_update_actual_freq)
-            # az = -9.8 + (self.base_lin_vel_z - self.last_base_lin_vel_z) / (1 / self.linvel_update_actual_freq)
-            ax = (self.base_lin_vel_x - self.last_base_lin_vel_x) / self.dt
-            az = -9.8 + (self.base_lin_vel_z - self.last_base_lin_vel_z) / self.dt
+            ax = (self.base_lin_vel_x - self.last_base_lin_vel_x) / (1 / self.linvel_update_actual_freq)
+            az = -9.8 + (self.base_lin_vel_z - self.last_base_lin_vel_z) / (1 / self.linvel_update_actual_freq)
+            # ax = (self.base_lin_vel_x - self.last_base_lin_vel_x) / self.dt
+            # az = -9.8 + (self.base_lin_vel_z - self.last_base_lin_vel_z) / self.dt
             
             # 2. Exponential smoothing
             self.ax_filtered = self.alpha * self.ax_filtered + (1.0 - self.alpha) * ax
@@ -1113,10 +1381,134 @@ class LeggedSfEnv:
             # # Only update the plot every 10 iterations for performance
             # if self.a_count % 10 == 0:
             # self.update_plot()
-            self.update_plot_cla()
+            self.update_plot_pitch()
 
             if self.a_count == 10000:
                 self.show_plot()
+        
+        if PLOT_ACC:
+            # 1. Compute raw a_x, a_z
+            ax = (self.base_lin_vel_x - self.last_base_lin_vel_x) / (1 / self.linvel_update_actual_freq)
+            az = -9.8 + (self.base_lin_vel_z - self.last_base_lin_vel_z) / (1 / self.linvel_update_actual_freq)
+            # ax = (self.base_lin_vel_x - self.last_base_lin_vel_x) / self.dt
+            # az = -9.8 + (self.base_lin_vel_z - self.last_base_lin_vel_z) / self.dt
+            
+            # 2. Exponential smoothing
+            self.ax_filtered = self.alpha * self.ax_filtered + (1.0 - self.alpha) * ax
+            self.az_filtered = self.alpha * self.az_filtered + (1.0 - self.alpha) * az
+            
+            # 3. Use the filtered values
+            ax_smooth = self.ax_filtered * self.ax_scale
+            az_smooth = self.az_filtered * self.az_scale
+
+            desired_pitch = torch.atan2(-ax_smooth, -az_smooth)
+            desired_pitch_degrees = torch.rad2deg(desired_pitch)
+
+            ax_val = ax.item()
+            az_val = az.item()
+
+            self.append_limited(self.ax_list, ax_val)
+            self.append_limited(self.az_list, az_val)
+            self.append_limited(self.time_steps, self.a_count)
+
+            self.update_plot_acc()
+
+            if self.a_count == 10000:
+                self.show_plot()
+        
+        if PLOT_ERROR:
+            # 1. Compute raw a_x, a_z
+            ax = (self.base_lin_vel_x - self.last_base_lin_vel_x) / (1 / self.linvel_update_actual_freq)
+            az = -9.8 + (self.base_lin_vel_z - self.last_base_lin_vel_z) / (1 / self.linvel_update_actual_freq)
+            # ax = (self.base_lin_vel_x - self.last_base_lin_vel_x) / self.dt
+            # az = -9.8 + (self.base_lin_vel_z - self.last_base_lin_vel_z) / self.dt
+            
+            # 2. Exponential smoothing
+            self.ax_filtered = self.alpha * self.ax_filtered + (1.0 - self.alpha) * ax
+            self.az_filtered = self.alpha * self.az_filtered + (1.0 - self.alpha) * az
+            
+            # 3. Use the filtered values
+            ax_smooth = self.ax_filtered * self.ax_scale
+            az_smooth = self.az_filtered * self.az_scale
+
+            desired_pitch = torch.atan2(-ax_smooth, -az_smooth)
+            desired_pitch_degrees = torch.rad2deg(desired_pitch)
+
+            desired_pitch_degrees = desired_pitch_degrees.item()
+            rot_y = self.rot_y.item()
+            error = abs(desired_pitch_degrees - rot_y)
+
+            print("Desired_pitch_degrees: ", desired_pitch_degrees)
+            print("Current pitch degrees: ", rot_y)
+            print("Pitch Error: ", error)
+
+            self.append_limited(self.error_list, error)
+            self.append_limited(self.time_steps, self.a_count)
+
+            self.upate_plot_error()
+
+            if self.a_count == 10000:
+                self.show_plot()
+        
+        if PLOT_PITCH_ERROR_ACC_HEIGHT:
+            # 1. Compute raw a_x, a_z
+            ax = (self.base_lin_vel_x - self.last_base_lin_vel_x) / (1 / self.linvel_update_actual_freq)
+            az = -9.8 + (self.base_lin_vel_z - self.last_base_lin_vel_z) / (1 / self.linvel_update_actual_freq)
+            # ax = (self.base_lin_vel_x - self.last_base_lin_vel_x) / self.dt
+            # az = -9.8 + (self.base_lin_vel_z - self.last_base_lin_vel_z) / self.dt
+            
+            # 2. Exponential smoothing
+            self.ax_filtered = self.alpha * self.ax_filtered + (1.0 - self.alpha) * ax
+            self.az_filtered = self.alpha * self.az_filtered + (1.0 - self.alpha) * az
+            
+            # 3. Use the filtered values
+            ax_smooth = self.ax_filtered * self.ax_scale
+            az_smooth = self.az_filtered * self.az_scale
+
+            print("ax: ", ax_smooth)
+
+            desired_pitch = torch.atan2(-ax_smooth, -az_smooth)
+            desired_pitch_degrees = torch.rad2deg(desired_pitch)
+
+            desired_pitch_degrees = desired_pitch_degrees.item()
+            rot_y = self.rot_y.item()
+            error = abs(desired_pitch_degrees - rot_y)
+            height = self.base_pos[:, 2].item()
+
+            self.append_limited(self.desired_theta_list, desired_pitch_degrees)
+            self.append_limited(self.current_pitch_list, rot_y)
+            self.append_limited(self.error_list, error)
+            self.append_limited(self.ax_list, ax_smooth)
+            self.append_limited(self.az_list, az_smooth)
+            self.append_limited(self.heigh_list, height)
+            self.append_limited(self.time_steps, self.a_count)
+
+            if self.a_count == self.plot_save_len:
+                base_path = "/home/psxkf4/Genesis/logs/paper/data/pitch"
+                file_name = self.folder_name + ".png"
+                pitch_path = os.path.join(base_path, file_name)
+
+                base_path = "/home/psxkf4/Genesis/logs/paper/data/error"
+                file_name = self.folder_name + "_error.png"
+                error_path = os.path.join(base_path, file_name)
+
+                base_path = "/home/psxkf4/Genesis/logs/paper/data/acc"
+                file_name = self.folder_name + "_acc.png"
+                acc_path = os.path.join(base_path, file_name)
+
+                base_path = "/home/psxkf4/Genesis/logs/paper/data/height"
+                file_name = self.folder_name + "_height.png"
+                height_path = os.path.join(base_path, file_name)
+
+                base_path = "/home/psxkf4/Genesis/logs/paper/data/stats"
+                file_name = self.folder_name + "_stats.txt"
+                stats_path = os.path.join(base_path, file_name)
+
+                self.update_plot_pitch_error_acc_height(pitch_path, error_path, acc_path, height_path, stats_path)
+
+            # if self.a_count == 10000:
+            #     self.show_plot()
+        
 
     def to_numpy(self, data):
         """Convert a tensor or a list of tensors to a NumPy array."""
@@ -1128,56 +1520,7 @@ class LeggedSfEnv:
 
         return np.array(data)  # Convert normal lists to NumPy
 
-    def update_plot_cla(self):
-        # self.axs[0].cla()
-        # self.axs[0].plot(self.time_steps, self.base_lin_vel_x_list, label="Current Base Lin Vel X", color="b")
-        # self.axs[0].set_ylabel("Velocity")
-        # self.axs[0].legend()
-        # self.axs[0].set_title("Current Base Linear X Velocities")
-
-        # self.axs[1].cla()
-        # self.axs[1].plot(self.time_steps, self.last_base_lin_vel_x_list, label="Last Base Lin Vel X", color="r")
-        # self.axs[1].set_ylabel("Velocity")
-        # self.axs[1].legend()
-        # self.axs[1].set_title("Last Base Linear X Velocities")
-
-        # self.axs[0].cla()
-        # self.axs[0].plot(self.time_steps, self.base_lin_vel_x_list, label="Base Lin Vel X", color="b")
-        # self.axs[0].plot(self.time_steps, self.last_base_lin_vel_x_list, label="Last Base Lin Vel X", color="r")
-        # self.axs[0].set_ylabel("Velocity")
-        # self.axs[0].legend()
-        # self.axs[0].set_title("Base Linear X Velocities")
-
-        # self.axs[1].cla()
-        # self.axs[1].plot(self.time_steps, self.base_lin_vel_z_list, label="Base Lin Vel Z", color="b")
-        # self.axs[1].plot(self.time_steps, self.last_base_lin_vel_z_list, label="Last Base Lin Vel Z", color="r")
-        # self.axs[1].set_ylabel("Velocity")
-        # self.axs[1].legend()
-        # self.axs[1].set_title("Base Linear Z Velocities")
-
-        # self.axs[2].cla()
-        # self.axs[2].plot(self.time_steps, self.ax_list, label="Ax", color="g")
-        # self.axs[2].plot(self.time_steps, self.az_list, label="Az", color="m")
-        # self.axs[2].set_xlabel("Time Steps")
-        # self.axs[2].set_ylabel("Acceleration")
-        # self.axs[2].legend()
-        # self.axs[2].set_title("Accelerations")
-
-        # self.axs[1].cla()
-        # self.axs[1].plot(self.time_steps, self.ax_list, label="Ax", color="g")
-        # self.axs[1].set_xlabel("Time Steps")
-        # self.axs[1].set_ylabel("Acceleration")
-        # self.axs[1].legend()
-        # self.axs[1].set_title("Accelerations")
-
-        # self.axs[3].cla()
-        # self.axs[3].plot(self.time_steps, self.desired_theta_list, label="Desired", color="g")
-        # self.axs[3].plot(self.time_steps, self.current_pitch_list, label="Current", color="m")
-        # self.axs[3].set_xlabel("Time Steps")
-        # self.axs[3].set_ylabel("Pitch")
-        # self.axs[3].legend()
-        # self.axs[3].set_title("Pitch")
-
+    def update_plot_pitch(self):
         self.axs.cla()
 
         # Convert to NumPy before plotting
@@ -1193,6 +1536,94 @@ class LeggedSfEnv:
         self.axs.set_title("Pitch [degrees]: When forward[backward] start, should be negative[positive]. When forward[backward] stop, should be positive[negative].")
 
         plt.pause(0.01)  # Refresh the plot in real-time
+    
+    def update_plot_acc(self):
+        self.axs.cla()
+        self.axs.plot(self.time_steps, self.ax_list, label="Ax", color="g")
+        self.axs.plot(self.time_steps, self.az_list, label="Az", color="m")
+        self.axs.set_xlabel("Time Steps")
+        self.axs.set_ylabel("Acceleration")
+        self.axs.legend()
+        self.axs.set_title("Accelerations")
+
+        plt.pause(0.01)  # Refresh the plot in real-time
+    
+    def upate_plot_error(self):
+        self.axs.cla()
+        self.axs.plot(self.time_steps, self.error_list, label="Pitch Error", color="r")
+        self.axs.set_xlabel("Time Steps")
+        self.axs.set_ylabel("Error [degrees]")
+        self.axs.legend()
+        self.axs.set_title("Pitch Error")
+
+        plt.pause(0.01)  # For real-time updates
+
+    def update_plot_pitch_error_acc_height(self, pitch_path=None, error_path=None, acc_path=None, height_path=None, stats_path=None):
+        self.axs1.cla()
+
+        # Convert to NumPy before plotting
+        desired_theta_np = self.to_numpy(self.desired_theta_list)
+        current_pitch_np = self.to_numpy(self.current_pitch_list)
+
+        self.axs1.plot(self.time_steps, desired_theta_np, label="Desired", color="g", linestyle='--')
+        self.axs1.plot(self.time_steps, current_pitch_np, label="Current", color="m")
+        self.axs1.set_xlabel("Time Steps")
+        self.axs1.set_ylabel("Tilt [degrees]")
+        self.axs1.set_ylim(-14.0, 14.0)
+        self.axs1.legend()
+        # self.axs1.set_title("Desired and Current Pitch")
+
+        self.axs2.cla()
+        self.axs2.plot(self.time_steps, self.error_list, label="Tilt Error", color="r")
+        self.axs2.set_xlabel("Time Steps")
+        self.axs2.set_ylabel("Error [degrees]")
+        self.axs2.set_ylim(-2.0, 10.0)
+        self.axs2.legend()
+        # self.axs2.set_title("Pitch Error")
+
+        # Convert to NumPy before plotting
+        ax_np = self.to_numpy(self.ax_list)
+        az_np = self.to_numpy(self.az_list)
+
+        self.axs3.plot(self.time_steps, ax_np, label="Acc x", color="b", linestyle='--')
+        self.axs3.plot(self.time_steps, az_np, label="Acc z", color="y")
+        self.axs3.set_xlabel("Time Steps")
+        self.axs3.set_ylabel("Acc [m/s^2]")
+        self.axs3.set_ylim(-14.0, 6.0)
+        self.axs3.legend()
+
+        self.axs4.plot(self.time_steps, self.heigh_list, label="Height", color="k")
+        self.axs4.set_xlabel("Time Steps")
+        self.axs4.set_ylabel("Base Height [m]")
+        self.axs4.set_ylim(0.0, 0.75)
+        self.axs4.legend()
+
+        # Compute stats for pitch error
+        error_np = self.to_numpy(self.error_list)
+        mean_error = error_np.mean()
+        std_error = error_np.std()
+        max_error = error_np.max()
+
+        print(f"Pitch Error - Mean: {mean_error:.3f}, Std: {std_error:.3f}, Max: {max_error:.3f}")
+
+        # Save stats to text file
+        if stats_path:
+            with open(stats_path, "w") as f:
+                f.write(f"Pitch Error Statistics\n")
+                f.write(f"-----------------------\n")
+                f.write(f"Mean: {mean_error:.6f}\n")
+                f.write(f"Standard Deviation: {std_error:.6f}\n")
+                f.write(f"Maximum: {max_error:.6f}\n")
+            print(f"Pitch error stats saved to {stats_path}")
+
+        if pitch_path and error_path and acc_path and height_path:
+            print("PLOTS ARE SAVED")
+            self.fig1.savefig(pitch_path, dpi=300, bbox_inches='tight')
+            self.fig2.savefig(error_path, dpi=300, bbox_inches='tight')
+            self.fig3.savefig(acc_path, dpi=300, bbox_inches='tight')
+            self.fig4.savefig(height_path, dpi=300, bbox_inches='tight')
+
+        plt.pause(0.01)
 
     def show_plot(self):
         plt.ioff()
@@ -1427,9 +1858,13 @@ class LeggedSfEnv:
                 torch.mean(self.episode_sums[key][envs_idx]).item() / self.env_cfg["episode_length_s"]
             )
             self.episode_sums[key][envs_idx] = 0.0
-        # self._resample_commands(envs_idx)
-        reset_flag = True
-        self._resample_commands_gaussian_acc(envs_idx, reset_flag)
+        if ACC_PROFILE_RESAMPLE:
+            reset_flag = False
+            self._resample_commands_gaussian_acc(envs_idx, reset_flag)
+        elif PREDEFINED_RESAMPLE or PREDEFINED_RESAMPLE_TRY:
+            self._resample_predefined_commands()
+        else:
+            self._resample_commands(envs_idx)
         if self.env_cfg['send_timeouts']:
             self.extras['time_outs'] = self.time_out_buf
 
@@ -1502,21 +1937,55 @@ class LeggedSfEnv:
 
 
     def _render_headless(self):
-        if self._recording and len(self._recorded_frames) < 150:
-            x, y, z = self.base_pos[0].cpu().numpy()  # Convert the tensor to NumPy
-            self.cam_0.set_pose(pos=(x+5.0, y, z+5.5), lookat=(x, y, z+0.5))
-            if self.show_vis:
+        if LATERAL_CAM:
+            # if self._recording and len(self._recorded_frames) < 150:
+            #     x, y, z = self.base_pos[0].cpu().numpy()  # Convert the tensor to NumPy
+            #     self.cam_0.set_pose(pos=(x+5.0, y, z), lookat=(x, y, z+0.5))
+            #     if self.show_vis:
+            #         self.cam_0.render(
+            #             rgb=True,
+            #         )
+            #     frame, _, _, _ = self.cam_0.render()
+            #     self._recorded_frames.append(frame)
+            # elif self.show_vis:
+            #     x, y, z = self.base_pos[0].cpu().numpy()  # Convert the tensor to NumPy
+            #     self.cam_0.set_pose(pos=(x+5.0, y, z), lookat=(x, y, z+0.5))
+            #     self.cam_0.render(
+            #         rgb=True,
+            #     )
+            if self._recording and len(self._recorded_frames) < 150:
+                x, y, z = self.base_pos[0].cpu().numpy()  # Convert the tensor to NumPy
+                self.cam_0.set_pose(pos=(x, y+4.0, z), lookat=(x, y, z+0.2))
+                if self.show_vis:
+                    self.cam_0.render(
+                        rgb=True,
+                    )
+                frame, _, _, _ = self.cam_0.render()
+                self._recorded_frames.append(frame)
+            elif self.show_vis:
+                x, y, z = self.base_pos[0].cpu().numpy()  # Convert the tensor to NumPy
+                self.cam_0.set_pose(pos=(x, y+4.0, z), lookat=(x, y, z+0.2))
                 self.cam_0.render(
                     rgb=True,
                 )
-            frame, _, _, _ = self.cam_0.render()
-            self._recorded_frames.append(frame)
-        elif self.show_vis:
-            x, y, z = self.base_pos[0].cpu().numpy()  # Convert the tensor to NumPy
-            self.cam_0.set_pose(pos=(x+5.0, y, z+5.5), lookat=(x, y, z+0.5))
-            self.cam_0.render(
-                rgb=True,
-            )
+        else:
+            if self._recording and len(self._recorded_frames) < 150:
+                x, y, z = self.base_pos[0].cpu().numpy()  # Convert the tensor to NumPy
+                self.cam_0.set_pose(pos=(x+5.0, y, z+5.5), lookat=(x, y, z+0.5))
+                if self.show_vis:
+                    self.cam_0.render(
+                        rgb=True,
+                    )
+                frame, _, _, _ = self.cam_0.render()
+                self._recorded_frames.append(frame)
+            elif self.show_vis:
+                x, y, z = self.base_pos[0].cpu().numpy()  # Convert the tensor to NumPy
+                self.cam_0.set_pose(pos=(x+5.0, y, z+5.5), lookat=(x, y, z+0.5))
+                self.cam_0.render(
+                    rgb=True,
+                )
+    
+
     def get_recorded_frames(self):
         if len(self._recorded_frames) == 150:
             frames = self._recorded_frames
@@ -1526,7 +1995,7 @@ class LeggedSfEnv:
         else:
             return None
 
-    def start_recording(self, record_internal=True):
+    def start_recording(self, record_internal=False):
         self._recorded_frames = []
         self._recording = True
         if record_internal:

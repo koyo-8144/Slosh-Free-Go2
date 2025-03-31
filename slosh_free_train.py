@@ -53,7 +53,7 @@ def get_train_cfg(exp_name, max_iterations):
             "save_interval": 2000,
         },
         "runner_class_name": "OnPolicyRunner",
-        "seed": 1,
+        # "seed": 1,
     }
 
     return train_cfg_dict
@@ -157,8 +157,8 @@ def get_cfgs():
         # "num_privileged_obs": 56, # num_obs + base_lin_vel
         # "num_obs": 51,
         # "num_privileged_obs": 54,
-        "num_obs": 46,
-        "num_privileged_obs": 49, # num_obs + base_lin_vel
+        "num_obs": 45,
+        "num_privileged_obs": 48, # num_obs + base_lin_vel
         "obs_scales": {
             "lin_vel": 2.0,
             "ang_vel": 0.25,
@@ -188,7 +188,7 @@ def get_cfgs():
         "min_pitch_num": 5.0,
         "action_rate_weight_decay_rate": 0.5,
         "linvel_update_freq": 10.0,
-        "alpha": 0.0,
+        "alpha": 0.9,
         "reward_scales": {
             # # v2
             # "tracking_lin_vel": 2.0,
@@ -288,7 +288,8 @@ def main():
         noise_cfg=noise_cfg, 
         reward_cfg=reward_cfg, 
         command_cfg=command_cfg,        
-        terrain_cfg=terrain_cfg,        
+        terrain_cfg=terrain_cfg,
+        folder_name=None,        
         show_viewer=args.view,
     )
 
