@@ -137,6 +137,8 @@ def get_cfgs():
         'push_interval_s': -1,
         'max_push_vel_xy': 1.0,
         # domain randomization
+        'randomize_delay': False,
+        'delay_range': [0.015, 0.05], #seconds
         'randomize_friction': True,
         'friction_range': [0.1, 1.5], #[0.1m 1.5]
         'randomize_base_mass': True,
@@ -151,6 +153,10 @@ def get_cfgs():
         'kp_scale_range': [0.8, 1.2],
         'randomize_kd_scale': False,
         'kd_scale_range': [0.8, 1.2],
+        "randomize_rot": False,
+        "pitch_range": [-40, 40],  # degrees
+        "roll_range": [-50, 50],
+        "yaw_range": [-180, 180],
     }
     obs_cfg = {
         # "num_obs": 53,

@@ -17,11 +17,12 @@ import os
 PLOT_PITCH = 0
 PLOT_ACC = 0
 PLOT_ERROR = 0
-PLOT_PITCH_ERROR_ACC_HEIGHT = 1
+PLOT_TILT_ERROR_VEL_ACC_HEIGHT_COMLEN = 1
 
 ACC_PROFILE_RESAMPLE = 0
-PREDEFINED_RESAMPLE = 0
-PREDEFINED_RESAMPLE_TRY = 1
+PREDEFINED_RESAMPLE_EVAL = 0
+PREDEFINED_RESAMPLE_TRY_EVAL = 0
+RANDOM_RESAMPLE_EVAL = 1
 
 PITCH_COMMAND_TRAIN = 0
 DESIRED_PITCH_COMMAND = 0
@@ -29,6 +30,42 @@ DESIRED_PITCH_COMMAND = 0
 LATERAL_CAM = 1
 VIDEO_RECORD = 0
 
+RANDOM_INIT_ROT = 0
+DELAY = 0
+
+# Helper function to get quaternion from Euler angles
+def quaternion_from_euler_tensor(roll_deg, pitch_deg, yaw_deg):
+    """
+    roll_deg, pitch_deg, yaw_deg: (N,) PyTorch tensors of angles in degrees.
+    Returns a (N, 4) PyTorch tensor of quaternions in [x, y, z, w] format.
+    """
+    # Convert to radians
+    roll_rad = torch.deg2rad(roll_deg)
+    pitch_rad = torch.deg2rad(pitch_deg)
+    yaw_rad = torch.deg2rad(yaw_deg)
+
+    # Half angles
+    half_r = roll_rad * 0.5
+    half_p = pitch_rad * 0.5
+    half_y = yaw_rad * 0.5
+
+    # Precompute sines/cosines
+    cr = half_r.cos()
+    sr = half_r.sin()
+    cp = half_p.cos()
+    sp = half_p.sin()
+    cy = half_y.cos()
+    sy = half_y.sin()
+
+    # Quaternion formula (XYZW)
+    # Note: This is the standard euler->quat for 'xyz' rotation convention.
+    qx = sr * cp * cy - cr * sp * sy
+    qy = cr * sp * cy + sr * cp * sy
+    qz = cr * cp * sy - sr * sp * cy
+    qw = cr * cp * cy + sr * sp * sy
+
+    # Stack into (N,4)
+    return torch.stack([qx, qy, qz, qw], dim=-1)
 
 class LeggedSfEnv:
     def __init__(self, num_envs, env_cfg, obs_cfg, noise_cfg, reward_cfg, command_cfg, terrain_cfg, folder_name, show_viewer=False, device="cuda"):
@@ -62,6 +99,22 @@ class LeggedSfEnv:
         self.reward_scales = reward_cfg["reward_scales"]
         self.noise_scales = noise_cfg["noise_scales"]
         self.selected_terrains = terrain_cfg["selected_terrains"]
+
+        if DELAY:
+            if self.env_cfg["randomize_delay"]:
+                # 1️⃣ Define Delay Parameters
+                self.min_delay, self.max_delay = self.env_cfg["delay_range"]  # Delay range in seconds
+                self.max_delay_steps = int(self.max_delay / self.dt)  # Convert max delay to steps
+
+                # 2️⃣ Initialize Delay Buffers
+                self.action_delay_buffer = torch.zeros(
+                    (self.num_envs, self.num_actions, self.max_delay_steps + 1), device=self.device
+                )
+                self.motor_delay_steps = torch.randint(
+                    int(self.min_delay / self.dt), self.max_delay_steps + 1,
+                    (self.num_envs, self.num_actions), device=self.device
+                )
+                print("Enabled random delay")
 
         # create scene
         self.scene = gs.Scene(
@@ -295,7 +348,7 @@ class LeggedSfEnv:
 
         self.init_camera_params()
 
-        if PREDEFINED_RESAMPLE:
+        if PREDEFINED_RESAMPLE_EVAL:
             self.forward_start_len = 15
             self.forward_12_len = 50
             self.forward_8_len = 50
@@ -331,7 +384,7 @@ class LeggedSfEnv:
             # print("START VEDEO RECORDING")
             # self.start_recording()
         
-        if PREDEFINED_RESAMPLE_TRY:
+        if PREDEFINED_RESAMPLE_TRY_EVAL:
             self.forward_start_len = 50
             self.forward_12_len = 50
             self.forward_8_len = 50
@@ -363,6 +416,74 @@ class LeggedSfEnv:
             self.backward_8 = True
             self.backward_4 = True
             self.backward_0 = True
+        
+        # self.plot_save_len = 1000
+
+        if RANDOM_RESAMPLE_EVAL:
+            self.forward_cmd_speeds = [1.2, 0.8, 0.4]
+            self.backward_cmd_speeds = [-1.2, -0.8, -0.4]
+
+            self.start_stop_cmd = True
+            self.forward1_cmd = True
+            self.forward2_cmd = True
+            self.forward3_cmd = True
+            self.middle_stop_cmd = True
+            self.backward1_cmd = True
+            self.backward2_cmd = True
+            self.backward3_cmd = True
+            self.finish_stop_cmd = True
+
+            self.start_stop_cmd_count = 0
+            self.forward1_cmd_count = 0
+            self.forward2_cmd_count = 0
+            self.forward3_cmd_count = 0
+            self.middle_stop_cmd_count = 0
+            self.backward1_cmd_count = 0
+            self.backward2_cmd_count = 0
+            self.backward3_cmd_count = 0
+            self.finish_stop_cmd_count = 0
+
+            self.start_stop_cmd_len = 50
+            self.forward1_cmd_len = random.randint(0, 50)
+            self.forward2_cmd_len = random.randint(0, 50)
+            self.forward3_cmd_len = random.randint(0, 50)
+            self.middle_stop_cmd_len = 50
+            self.backward1_cmd_len = random.randint(0, 50)
+            self.backward2_cmd_len = random.randint(0, 50)
+            self.backward3_cmd_len = random.randint(0, 50)
+            self.finish_stop_cmd_len = 50
+            self.plot_save_len = (self.start_stop_cmd_len + self.forward1_cmd_len + self.forward2_cmd_len + self.forward3_cmd_len 
+                                    + self.middle_stop_cmd_len + self.backward1_cmd_len + self.backward2_cmd_len + self.backward3_cmd_len + self.finish_stop_cmd_len)
+
+            # self.start_stop_len = 50
+            # self.forward_12_len = random.randint(0, 50)
+            # self.forward_8_len = random.randint(0, 50)
+            # self.forward_4_len = random.randint(0, 50)
+            # self.stop_len = random.randint(0, 50)
+            # self.backward_12_len = random.randint(0, 50)
+            # self.backward_8_len = random.randint(0, 50)
+            # self.backward_4_len = random.randint(0, 50)
+            # self.back_stop_len = random.randint(0, 50)
+            # self.plot_save_len = (self.start_stop_len + self.forward_12_len + self.forward_8_len + self.forward_4_len + self.stop_len 
+            #                         + self.backward_12_len + self.backward_8_len + self.backward_4_len + self.back_stop_len)
+            # self.start_stop_count = 0
+            # self.forward_12_count = 0
+            # self.forward_8_count = 0
+            # self.forward_4_count = 0
+            # self.stop_count = 0
+            # self.backward_12_count = 0
+            # self.backward_8_count = 0
+            # self.backward_4_count = 0
+            # self.back_stop_count = 0
+            # self.start_stop = True
+            # self.forward_12 = True
+            # self.forward_8 = True
+            # self.forward_4 = True
+            # self.stop = True
+            # self.backward_12 = True
+            # self.backward_8 = True
+            # self.backward_4 = True
+            # self.back_stop = True
 
         if VIDEO_RECORD:
             self.video_record_count = 0
@@ -432,6 +553,8 @@ class LeggedSfEnv:
             # self.commanded_lin_vel_x_walking = torch.zeros((self.num_envs,), device=self.device, dtype=gs.tc_float)
             # self.ax_sampled = torch.zeros((self.num_envs,), device=self.device, dtype=gs.tc_float)
             self.smoothed_ax = torch.zeros((self.num_envs,), device=self.device, dtype=gs.tc_float)
+            self.forward_count = 0
+            self.backward_count = 0
 
         self.base_ang_vel = torch.zeros((self.num_envs, 3), device=self.device, dtype=gs.tc_float)
         self.projected_gravity = torch.zeros((self.num_envs, 3), device=self.device, dtype=gs.tc_float)
@@ -675,7 +798,7 @@ class LeggedSfEnv:
             self.axs.set_ylabel("Error")
             self.axs.legend(["Error"])
         
-        if PLOT_PITCH_ERROR_ACC_HEIGHT:
+        if PLOT_TILT_ERROR_VEL_ACC_HEIGHT_COMLEN:
             self.desired_theta_list = []
             self.current_pitch_list = []
             self.error_list = []
@@ -804,6 +927,8 @@ class LeggedSfEnv:
         if PITCH_COMMAND_TRAIN:
             self.commands[envs_idx, 3] = gs_rand_float(*self.command_cfg["pitch_ang_range"], (len(envs_idx),), self.device)
 
+    
+
     def _resample_desired_pitch(self, envs_idx):
         # 1. Compute raw a_x, a_z
         ax = (self.base_lin_vel_x - self.last_base_lin_vel_x) / (1 / self.linvel_update_actual_freq)
@@ -878,6 +1003,11 @@ class LeggedSfEnv:
             #     min_vx, max_vx = self.command_cfg["lin_vel_x_range"][0], self.command_cfg["lin_vel_x_range"][1]
             # self.commands[envs_idx, 0] = torch.clamp(self.commands[envs_idx, 0], min_vx, max_vx)
         
+            if self.commands[envs_idx, 0] > 0:
+                self.forward_count += 1
+            elif self.commands[envs_idx, 0] < 0:
+                self.backward_count += 1
+
         # if not reset_flag: # record for tensorbard only when Go2 is walking
         #     self.commanded_lin_vel_x_walking = self.commands[envs_idx, 0]
         # print('commanded lin vel x: ', self.commands[envs_idx, 0])
@@ -955,6 +1085,192 @@ class LeggedSfEnv:
             if self.backward_0_count == self.backward_0_len:
                 self.backward_0 = False
             self.backward_0_count += 1
+
+            # print("STOP VIDEO RECORDING")
+            # base_path = "/home/psxkf4/Genesis/logs/paper/videos"
+            # file_name = self.folder_name + ".mp4"
+            # full_path = os.path.join(base_path, file_name)
+            # self.stop_recording(full_path)
+    
+    def _resample_random_commands_eval(self):
+        if self.start_stop_cmd:
+            self.lin_vel_x_cmd = 0.0
+            print("Start-stop phase active: commanding stop (0 m/s).")
+            self.commands[0, 0] = self.lin_vel_x_cmd
+            self.commands[0, 1] = 0.0
+            self.commands[0, 2] = 0.0
+            if self.start_stop_cmd_count == self.start_stop_cmd_len:
+                self.start_stop_cmd = False  # End stop phase
+            self.start_stop_cmd_count += 1
+        elif self.forward1_cmd:
+            if self.forward1_cmd_count == 0:
+                self.lin_vel_x_cmd = random.choice(self.forward_cmd_speeds)
+            print("Resampling forward velocity randomly: ", self.lin_vel_x_cmd)
+            self.commands[0, 0] = self.lin_vel_x_cmd
+            self.commands[0, 1] = 0.0
+            self.commands[0, 2] = 0.0
+            if self.forward1_cmd_count == self.forward1_cmd_len:
+                self.forward1_cmd = False
+            self.forward1_cmd_count += 1
+        elif self.forward2_cmd:
+            if self.forward2_cmd_count == 0:
+                self.lin_vel_x_cmd = random.choice(self.forward_cmd_speeds)
+            print("Resampling forward velocity randomly: ", self.lin_vel_x_cmd)
+            self.commands[0, 0] = self.lin_vel_x_cmd
+            self.commands[0, 1] = 0.0
+            self.commands[0, 2] = 0.0
+            if self.forward2_cmd_count == self.forward2_cmd_len:
+                self.forward2_cmd = False
+            self.forward2_cmd_count += 1
+        elif self.forward3_cmd:
+            if self.forward3_cmd_count == 0:
+                self.lin_vel_x_cmd = random.choice(self.forward_cmd_speeds)
+            print("Resampling forward velocity randomly: ", self.lin_vel_x_cmd)
+            self.commands[0, 0] = self.lin_vel_x_cmd
+            self.commands[0, 1] = 0.0
+            self.commands[0, 2] = 0.0
+            if self.forward3_cmd_count == self.forward3_cmd_len:
+                self.forward3_cmd = False
+            self.forward3_cmd_count += 1
+        elif self.middle_stop_cmd:
+            self.lin_vel_x_cmd = 0.0
+            print("Middle-stop phase active: commanding stop (0 m/s).")
+            self.commands[0, 0] = self.lin_vel_x_cmd
+            self.commands[0, 1] = 0.0
+            self.commands[0, 2] = 0.0
+            if self.middle_stop_cmd_count == self.middle_stop_cmd_len:
+                self.middle_stop_cmd = False  # End stop phase
+            self.middle_stop_cmd_count += 1
+        elif self.backward1_cmd:
+            if self.backward1_cmd_count == 0:
+                self.lin_vel_x_cmd = random.choice(self.backward_cmd_speeds)
+            print("Resampling forward velocity randomly: ", self.lin_vel_x_cmd)
+            self.commands[0, 0] = self.lin_vel_x_cmd
+            self.commands[0, 1] = 0.0
+            self.commands[0, 2] = 0.0
+            if self.backward1_cmd_count == self.backward1_cmd_len:
+                self.backward1_cmd = False
+            self.backward1_cmd_count += 1
+        elif self.backward2_cmd:
+            if self.backward2_cmd_count == 0:
+                self.lin_vel_x_cmd = random.choice(self.backward_cmd_speeds)
+            print("Resampling forward velocity randomly: ", self.lin_vel_x_cmd)
+            self.commands[0, 0] = self.lin_vel_x_cmd
+            self.commands[0, 1] = 0.0
+            self.commands[0, 2] = 0.0
+            if self.backward2_cmd_count == self.backward2_cmd_len:
+                self.backward2_cmd = False
+            self.backward2_cmd_count += 1
+        elif self.backward3_cmd:
+            if self.backward3_cmd_count == 0:
+                self.lin_vel_x_cmd = random.choice(self.backward_cmd_speeds)
+            print("Resampling forward velocity randomly: ", self.lin_vel_x_cmd)
+            self.commands[0, 0] = self.lin_vel_x_cmd
+            self.commands[0, 1] = 0.0
+            self.commands[0, 2] = 0.0
+            if self.backward3_cmd_count == self.backward3_cmd_len:
+                self.backward3_cmd = False
+            self.backward3_cmd_count += 1
+        elif self.finish_stop_cmd:
+            self.lin_vel_x_cmd = 0.0
+            print("Finish-stop phase active: commanding stop (0 m/s).")
+            self.commands[0, 0] = self.lin_vel_x_cmd
+            self.commands[0, 1] = 0.0
+            self.commands[0, 2] = 0.0
+            if self.finish_stop_cmd_count == self.finish_stop_cmd_len:
+                self.fnish_cmd_stop = False  # End stop phase
+            self.finish_stop_cmd_count += 1
+        
+
+        # if self.start_stop:
+        #     lin_vel_x = 0.0
+        #     print("Starting resample")
+        #     self.commands[0, 0] = lin_vel_x
+        #     self.commands[0, 1] = 0.0
+        #     self.commands[0, 2] = 0.0
+        #     if self.start_stop_count == self.start_stop_len:
+        #         self.start_stop = False
+        #     self.start_stop_count += 1
+        # elif self.forward_12:
+        #     lin_vel_x = 1.0
+        #     print("Linear Velocity X: ", lin_vel_x)
+        #     print("Length: ", self.forward_12_len)
+        #     self.commands[0, 0] = lin_vel_x
+        #     self.commands[0, 1] = 0.0
+        #     self.commands[0, 2] = 0.0
+        #     if self.forward_12_count == self.forward_12_len:
+        #         self.forward_12 = False
+        #     self.forward_12_count += 1
+        # elif self.forward_8:
+        #     lin_vel_x = 0.8
+        #     print("Linear Velocity X: ", lin_vel_x)
+        #     print("Length: ", self.forward_8_len)
+        #     self.commands[0, 0] = lin_vel_x
+        #     self.commands[0, 1] = 0.0
+        #     self.commands[0, 2] = 0.0
+        #     if self.forward_8_count == self.forward_8_len:
+        #         self.forward_8 = False
+        #     self.forward_8_count += 1
+        # elif self.forward_4:
+        #     lin_vel_x = 0.4
+        #     print("Linear Velocity X: ", lin_vel_x)
+        #     print("Length: ", self.forward_4_len)
+        #     self.commands[0, 0] = lin_vel_x
+        #     self.commands[0, 1] = 0.0
+        #     self.commands[0, 2] = 0.0
+        #     if self.forward_4_count == self.forward_4_len:
+        #         self.forward_4 = False
+        #     self.forward_4_count += 1
+        # elif self.stop:
+        #     lin_vel_x = 0.0
+        #     print("Linear Velocity X: ", lin_vel_x)
+        #     print("Length: ", self.stop_len)
+        #     self.commands[0, 0] = lin_vel_x
+        #     self.commands[0, 1] = 0.0
+        #     self.commands[0, 2] = 0.0
+        #     if self.stop_count == self.stop_len:
+        #         self.stop = False
+        #     self.stop_count += 1
+        # elif self.backward_12:
+        #     lin_vel_x = -1.2
+        #     print("Linear Velocity X: ", lin_vel_x)
+        #     print("Length: ", self.backward_12_len)
+        #     self.commands[0, 0] = lin_vel_x
+        #     self.commands[0, 1] = 0.0
+        #     self.commands[0, 2] = 0.0
+        #     if self.backward_12_count == self.backward_12_len:
+        #         self.backward_12 = False
+        #     self.backward_12_count += 1
+        # elif self.backward_8:
+        #     lin_vel_x = -0.8
+        #     print("Linear Velocity X: ", lin_vel_x)
+        #     print("Length: ", self.backward_8_len)
+        #     self.commands[0, 0] = lin_vel_x
+        #     self.commands[0, 1] = 0.0
+        #     self.commands[0, 2] = 0.0
+        #     if self.backward_8_count == self.backward_8_len:
+        #         self.backward_8 = False
+        #     self.backward_8_count += 1
+        # elif self.backward_4:
+        #     lin_vel_x = -0.4
+        #     print("Linear Velocity X: ", lin_vel_x)
+        #     print("Length: ", self.backward_4_len)
+        #     self.commands[0, 0] = lin_vel_x
+        #     self.commands[0, 1] = 0.0
+        #     self.commands[0, 2] = 0.0
+        #     if self.backward_4_count == self.backward_4_len:
+        #         self.backward_4 = False
+        #     self.backward_4_count += 1
+        # elif self.back_stop:
+        #     lin_vel_x = 0.0
+        #     print("Linear Velocity X: ", lin_vel_x)
+        #     print("Length: ", self.back_stop_len)
+        #     self.commands[0, 0] = lin_vel_x
+        #     self.commands[0, 1] = 0.0
+        #     self.commands[0, 2] = 0.0
+        #     if self.back_stop_count == self.back_stop_len:
+        #         self.back_stop = False
+        #     self.back_stop_count += 1
 
             # print("STOP VIDEO RECORDING")
             # base_path = "/home/psxkf4/Genesis/logs/paper/videos"
@@ -1132,11 +1448,34 @@ class LeggedSfEnv:
 
     def give_runner_data(self):
         # return self.lin_vel_x_range_min, self.lin_vel_x_range_max, self.tracking_lin_vel_rew_mean, self.tracking_lin_vel_rew_threshold_one, self.desired_pitch_mean, self.pitch_count, self.action_rate_scale
-        return self.smoothed_ax[0]
+        return self.forward_count, self.backward_count
 
     def step(self, actions):
+        # self.actions = torch.clip(actions, -self.env_cfg["clip_actions"], self.env_cfg["clip_actions"])
+        # exec_actions = self.last_actions if self.simulate_action_latency else self.actions
         self.actions = torch.clip(actions, -self.env_cfg["clip_actions"], self.env_cfg["clip_actions"])
-        exec_actions = self.last_actions if self.simulate_action_latency else self.actions
+        if DELAY:
+            if self.env_cfg["randomize_delay"]:
+                # 3️⃣ Store new actions in delay buffer (Shift the buffer)
+                self.action_delay_buffer[:, :, :-1] = self.action_delay_buffer[:, :, 1:].clone()
+                self.action_delay_buffer[:, :, -1] = self.actions  # Insert latest action
+
+                # 3) Vectorized gather for delayed actions
+
+                T = self.action_delay_buffer.shape[-1]  # T = max_delay_steps + 1
+                # (num_envs, num_actions)
+                delayed_indices = (T - 1) - self.motor_delay_steps
+                # Expand to (num_envs, num_actions, 1)
+                gather_indices = delayed_indices.unsqueeze(-1)
+
+                # Gather from last dimension
+                delayed_actions = self.action_delay_buffer.gather(dim=2, index=gather_indices).squeeze(-1)
+
+                exec_actions = delayed_actions
+            else:
+                exec_actions = self.last_actions if self.simulate_action_latency else self.actions
+        else:
+            exec_actions = self.last_actions if self.simulate_action_latency else self.actions
         dof_pos_list = []
         dof_vel_list = []
         for i in range(self.env_cfg['decimation']):
@@ -1235,8 +1574,10 @@ class LeggedSfEnv:
             self._resample_commands_gaussian_acc(envs_idx, reset_flag)
         elif DESIRED_PITCH_COMMAND:
             self._resample_desired_pitch()
-        elif PREDEFINED_RESAMPLE or PREDEFINED_RESAMPLE_TRY:
+        elif PREDEFINED_RESAMPLE_EVAL or PREDEFINED_RESAMPLE_TRY_EVAL:
             self._resample_predefined_commands()
+        elif RANDOM_RESAMPLE_EVAL:
+            self._resample_random_commands_eval()
         else:
             self._resample_commands(envs_idx)
         self._randomize_rigids(envs_idx)
@@ -1330,8 +1671,8 @@ class LeggedSfEnv:
         self.privileged_obs_buf = torch.clip(self.privileged_obs_buf, -self.clip_obs, self.clip_obs)
         if self.add_noise:
             self.obs_buf += (2 * torch.rand_like(self.obs_buf) - 1) * self.noise_scale_vec
-        # self.check_and_sanitize_observations()
-        self.check_and_reset_observations()
+        self.check_and_sanitize_observations()
+        # self.check_and_reset_observations()
         self.second_last_actions[:] = self.last_actions[:]
         self.last_actions[:] = self.actions[:]
         self.last_dof_vel[:] = self.dof_vel[:]
@@ -1461,7 +1802,7 @@ class LeggedSfEnv:
             if self.a_count == 10000:
                 self.show_plot()
         
-        if PLOT_PITCH_ERROR_ACC_HEIGHT:
+        if PLOT_TILT_ERROR_VEL_ACC_HEIGHT_COMLEN:
             # 1. Compute raw a_x, a_z
             ax = (self.base_lin_vel_x - self.last_base_lin_vel_x) / (1 / self.linvel_update_actual_freq)
             az = -9.8 + (self.base_lin_vel_z - self.last_base_lin_vel_z) / (1 / self.linvel_update_actual_freq)
@@ -1523,11 +1864,15 @@ class LeggedSfEnv:
                 file_name = self.folder_name + "_height.png"
                 height_path = os.path.join(base_path, file_name)
 
+                base_path = "/home/psxkf4/Genesis/logs/paper/data/comlen"
+                file_name = self.folder_name + "_comlen.txt"
+                comlen_path = os.path.join(base_path, file_name)
+
                 base_path = "/home/psxkf4/Genesis/logs/paper/data/stats"
                 file_name = self.folder_name + "_stats.txt"
                 stats_path = os.path.join(base_path, file_name)
 
-                self.update_plot_pitch_error_acc_height(pitch_path, error_path, linvel_path, acc_path, height_path, stats_path)
+                self.update_plot_tilt_error_vel_acc_height_comlen(pitch_path, error_path, linvel_path, acc_path, height_path, comlen_path, stats_path)
 
             # if self.a_count == 10000:
             #     self.show_plot()
@@ -1581,7 +1926,7 @@ class LeggedSfEnv:
 
         plt.pause(0.01)  # For real-time updates
 
-    def update_plot_pitch_error_acc_height(self, pitch_path=None, error_path=None,linvel_path=None, acc_path=None, height_path=None, stats_path=None):
+    def update_plot_tilt_error_vel_acc_height_comlen(self, pitch_path=None, error_path=None,linvel_path=None, acc_path=None, height_path=None, comlen_path=None, stats_path=None):
         self.axs1.cla()
 
         # Convert to NumPy before plotting
@@ -1643,6 +1988,21 @@ class LeggedSfEnv:
         max_error = error_np.max()
 
         print(f"Pitch Error - Mean: {mean_error:.3f}, Std: {std_error:.3f}, Max: {max_error:.3f}")
+
+        if comlen_path:
+            with open(comlen_path, "w") as f:
+                f.write(f"Random Velocity Command Length\n")
+                f.write(f"-----------------------\n")
+                f.write(f"Start Stop Length: {self.start_stop_cmd_len}\n")
+                f.write(f"Forward 1 Length: {self.forward1_cmd_len}\n")
+                f.write(f"Forward 2 Length: {self.forward2_cmd_len}\n")
+                f.write(f"Forward 3 Length: {self.forward3_cmd_len}\n")
+                f.write(f"Middle Stop Length: {self.middle_stop_cmd_len}\n")
+                f.write(f"Backward 1 Length: {self.backward1_cmd_len}\n")
+                f.write(f"Backward 2 Length: {self.backward2_cmd_len}\n")
+                f.write(f"Backward 3 Length: {self.backward3_cmd_len}\n")
+                f.write(f"Finish Stop Length: {self.finish_stop_cmd_len}\n")
+            print(f"Command length saved to {comlen_path}")
 
         # Save stats to text file
         if stats_path:
@@ -1855,7 +2215,33 @@ class LeggedSfEnv:
 
         self.base_quat[envs_idx] = self.base_init_quat.reshape(1, -1)
         self.robot.set_pos(self.base_pos[envs_idx], zero_velocity=False, envs_idx=envs_idx)
+        
+        if RANDOM_INIT_ROT:
+            if self.env_cfg["randomize_rot"]:
+                # 1) Get random roll, pitch, yaw (in degrees) for each environment.
+                roll = gs_rand_float(*self.env_cfg["roll_range"],  (len(envs_idx),), self.device)
+                pitch = gs_rand_float(*self.env_cfg["pitch_range"], (len(envs_idx),), self.device)
+                yaw = gs_rand_float(*self.env_cfg["yaw_range"],    (len(envs_idx),), self.device)
+
+                # 2) Convert them all at once into a (N,4) quaternion tensor [x, y, z, w].
+                quats_torch = quaternion_from_euler_tensor(roll, pitch, yaw)  # (N, 4)
+
+                # 3) Move to CPU if needed and assign into self.base_quat in one shot
+                #    (assuming self.base_quat is a numpy array of shape [num_envs, 4]).
+                self.base_quat[envs_idx] = quats_torch
+            else:
+                self.base_quat[envs_idx] = self.base_init_quat.reshape(1, -1)
+        
         self.robot.set_quat(self.base_quat[envs_idx], zero_velocity=False, envs_idx=envs_idx)
+
+        if DELAY:
+            if self.env_cfg["randomize_delay"]:
+                self.motor_delay_steps[envs_idx] = torch.randint(
+                    int(self.min_delay / self.dt),
+                    self.max_delay_steps + 1,
+                    (len(envs_idx), self.num_actions),
+                    device=self.device
+                )
 
         # 1a. Check right after setting position
         if torch.isnan(self.base_pos[envs_idx]).any():
@@ -1900,8 +2286,10 @@ class LeggedSfEnv:
         if ACC_PROFILE_RESAMPLE:
             reset_flag = False
             self._resample_commands_gaussian_acc(envs_idx, reset_flag)
-        elif PREDEFINED_RESAMPLE or PREDEFINED_RESAMPLE_TRY:
+        elif PREDEFINED_RESAMPLE_EVAL or PREDEFINED_RESAMPLE_TRY_EVAL:
             self._resample_predefined_commands()
+        elif RANDOM_RESAMPLE_EVAL:
+            self._resample_random_commands_eval()
         else:
             self._resample_commands(envs_idx)
         if self.env_cfg['send_timeouts']:

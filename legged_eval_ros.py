@@ -48,8 +48,9 @@ class Go2EvaluationNode(Node):
         # log_dir = "/home/psxkf4/Genesis/logs/paper/slosh_free_acc_profile_sigma03_LSTM"
         # log_dir = "/home/psxkf4/Genesis/logs/paper/slosh_free_acc_profile_sigma03_MLP"
         # log_dir = "/home/psxkf4/Genesis/logs/paper/slosh_free_no_acc_profile_LSTM"
-        log_dir = "/home/psxkf4/Genesis/logs/paper/slosh_free_no_acc_profile_MLP"
+        # log_dir = "/home/psxkf4/Genesis/logs/paper/slosh_free_no_acc_profile_MLP"
         # log_dir = "/home/psxkf4/Genesis/logs/paper/slosh_free_no_acc_profile_MLP_pitch_obs"
+        log_dir = "/home/psxkf4/Genesis/logs/paper/slosh_free_acc_profile_sigma03_MLP_clip025_dkl0005"
 
         folder_name = log_dir.split("/")[-1]
 
@@ -89,9 +90,10 @@ class Go2EvaluationNode(Node):
         # resume_path = "/home/psxkf4/Genesis/logs/paper/slosh_free_acc_profile_sigma03_LSTM/model_10000.pt"
         # resume_path = "/home/psxkf4/Genesis/logs/paper/slosh_free_acc_profile_sigma03_MLP/model_10000.pt"
         # resume_path = "/home/psxkf4/Genesis/logs/paper/slosh_free_no_acc_profile_LSTM/model_10000.pt"
-        resume_path = "/home/psxkf4/Genesis/logs/paper/slosh_free_no_acc_profile_MLP/model_8000.pt"
+        # resume_path = "/home/psxkf4/Genesis/logs/paper/slosh_free_no_acc_profile_MLP/model_8000.pt"
         # resume_path = "/home/psxkf4/Genesis/logs/paper/slosh_free_no_acc_profile_MLP_pitch_obs/model_6000.pt"
-        
+        resume_path = "/home/psxkf4/Genesis/logs/paper/slosh_free_acc_profile_sigma03_MLP_clip025_dkl0005/model_12000.pt"
+
         runner.load(resume_path)
         # resume_path = os.path.join(log_dir, f"model_{args.ckpt}.pt")
         # runner.load(resume_path)
