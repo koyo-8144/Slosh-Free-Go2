@@ -17,7 +17,7 @@ import os
 PLOT_PITCH = 0
 PLOT_ACC = 0
 PLOT_ERROR = 0
-PLOT_TILT_ERROR_VEL_ACC_HEIGHT_COMLEN = 1
+PLOT_TILT_ERROR_VEL_ACC_HEIGHT_CMDLEN = 1
 
 ACC_PROFILE_RESAMPLE = 0
 PREDEFINED_RESAMPLE_EVAL = 0
@@ -348,148 +348,6 @@ class LeggedSfEnv:
 
         self.init_camera_params()
 
-        if PREDEFINED_RESAMPLE_EVAL:
-            self.forward_start_len = 15
-            self.forward_12_len = 50
-            self.forward_8_len = 50
-            self.forward_4_len = 0
-            self.forward_0_len = 50
-            self.backward_12_len = 0
-            self.backward_8_len = 0
-            self.backward_4_len = 0
-            self.backward_0_len = 0
-            self.plot_save_len = (self.forward_start_len + self.forward_12_len + self.forward_8_len + self.forward_4_len + self.forward_0_len 
-                                    + self.backward_12_len + self.backward_8_len + self.backward_4_len + self.backward_0_len)
-
-            self.forward_start_count = 0
-            self.forward_12_count = 0
-            self.forward_8_count = 0
-            self.forward_4_count = 0
-            self.forward_0_count = 0
-            self.backward_12_count = 0
-            self.backward_8_count = 0
-            self.backward_4_count = 0
-            self.backward_0_count = 0
-
-            self.forward_start = True
-            self.forward_12 = True
-            self.forward_8 = True
-            self.forward_4 = True
-            self.forward_0 = True
-            self.backward_12 = True
-            self.backward_8 = True
-            self.backward_4 = True
-            self.backward_0 = True
-
-            # print("START VEDEO RECORDING")
-            # self.start_recording()
-        
-        if PREDEFINED_RESAMPLE_TRY_EVAL:
-            self.forward_start_len = 50
-            self.forward_12_len = 50
-            self.forward_8_len = 50
-            self.forward_4_len = 0
-            self.forward_0_len = 50
-            self.backward_12_len = 50
-            self.backward_8_len = 30
-            self.backward_4_len = 0
-            self.backward_0_len = 30
-            self.plot_save_len = (self.forward_start_len + self.forward_12_len + self.forward_8_len + self.forward_4_len + self.forward_0_len 
-                                    + self.backward_12_len + self.backward_8_len + self.backward_4_len + self.backward_0_len)
-
-            self.forward_start_count = 0
-            self.forward_12_count = 0
-            self.forward_8_count = 0
-            self.forward_4_count = 0
-            self.forward_0_count = 0
-            self.backward_12_count = 0
-            self.backward_8_count = 0
-            self.backward_4_count = 0
-            self.backward_0_count = 0
-
-            self.forward_start = True
-            self.forward_12 = True
-            self.forward_8 = True
-            self.forward_4 = True
-            self.forward_0 = True
-            self.backward_12 = True
-            self.backward_8 = True
-            self.backward_4 = True
-            self.backward_0 = True
-        
-        # self.plot_save_len = 1000
-
-        if RANDOM_RESAMPLE_EVAL:
-            self.forward_cmd_speeds = [1.2, 0.8, 0.4]
-            self.backward_cmd_speeds = [-1.2, -0.8, -0.4]
-
-            self.start_stop_cmd = True
-            self.forward1_cmd = True
-            self.forward2_cmd = True
-            self.forward3_cmd = True
-            self.middle_stop_cmd = True
-            self.backward1_cmd = True
-            self.backward2_cmd = True
-            self.backward3_cmd = True
-            self.finish_stop_cmd = True
-
-            self.start_stop_cmd_count = 0
-            self.forward1_cmd_count = 0
-            self.forward2_cmd_count = 0
-            self.forward3_cmd_count = 0
-            self.middle_stop_cmd_count = 0
-            self.backward1_cmd_count = 0
-            self.backward2_cmd_count = 0
-            self.backward3_cmd_count = 0
-            self.finish_stop_cmd_count = 0
-
-            self.start_stop_cmd_len = 50
-            self.forward1_cmd_len = random.randint(0, 50)
-            self.forward2_cmd_len = random.randint(0, 50)
-            self.forward3_cmd_len = random.randint(0, 50)
-            self.middle_stop_cmd_len = 50
-            self.backward1_cmd_len = random.randint(0, 50)
-            self.backward2_cmd_len = random.randint(0, 50)
-            self.backward3_cmd_len = random.randint(0, 50)
-            self.finish_stop_cmd_len = 50
-            self.plot_save_len = (self.start_stop_cmd_len + self.forward1_cmd_len + self.forward2_cmd_len + self.forward3_cmd_len 
-                                    + self.middle_stop_cmd_len + self.backward1_cmd_len + self.backward2_cmd_len + self.backward3_cmd_len + self.finish_stop_cmd_len)
-
-            # self.start_stop_len = 50
-            # self.forward_12_len = random.randint(0, 50)
-            # self.forward_8_len = random.randint(0, 50)
-            # self.forward_4_len = random.randint(0, 50)
-            # self.stop_len = random.randint(0, 50)
-            # self.backward_12_len = random.randint(0, 50)
-            # self.backward_8_len = random.randint(0, 50)
-            # self.backward_4_len = random.randint(0, 50)
-            # self.back_stop_len = random.randint(0, 50)
-            # self.plot_save_len = (self.start_stop_len + self.forward_12_len + self.forward_8_len + self.forward_4_len + self.stop_len 
-            #                         + self.backward_12_len + self.backward_8_len + self.backward_4_len + self.back_stop_len)
-            # self.start_stop_count = 0
-            # self.forward_12_count = 0
-            # self.forward_8_count = 0
-            # self.forward_4_count = 0
-            # self.stop_count = 0
-            # self.backward_12_count = 0
-            # self.backward_8_count = 0
-            # self.backward_4_count = 0
-            # self.back_stop_count = 0
-            # self.start_stop = True
-            # self.forward_12 = True
-            # self.forward_8 = True
-            # self.forward_4 = True
-            # self.stop = True
-            # self.backward_12 = True
-            # self.backward_8 = True
-            # self.backward_4 = True
-            # self.back_stop = True
-
-        if VIDEO_RECORD:
-            self.video_record_count = 0
-            self.video_record_len = 100
-            print("START VEDEO RECORDING")
-            self.start_recording()
 
 
 
@@ -555,6 +413,8 @@ class LeggedSfEnv:
             self.smoothed_ax = torch.zeros((self.num_envs,), device=self.device, dtype=gs.tc_float)
             self.forward_count = 0
             self.backward_count = 0
+
+            self.plot_save_len = 1000
 
         self.base_ang_vel = torch.zeros((self.num_envs, 3), device=self.device, dtype=gs.tc_float)
         self.projected_gravity = torch.zeros((self.num_envs, 3), device=self.device, dtype=gs.tc_float)
@@ -798,7 +658,7 @@ class LeggedSfEnv:
             self.axs.set_ylabel("Error")
             self.axs.legend(["Error"])
         
-        if PLOT_TILT_ERROR_VEL_ACC_HEIGHT_COMLEN:
+        if PLOT_TILT_ERROR_VEL_ACC_HEIGHT_CMDLEN:
             self.desired_theta_list = []
             self.current_pitch_list = []
             self.error_list = []
@@ -852,7 +712,184 @@ class LeggedSfEnv:
             self.axs5.legend(["Height"])
 
 
+        if PREDEFINED_RESAMPLE_EVAL:
+            self.forward_start_len = 15
+            self.forward_12_len = 50
+            self.forward_8_len = 50
+            self.forward_4_len = 0
+            self.forward_0_len = 50
+            self.backward_12_len = 0
+            self.backward_8_len = 0
+            self.backward_4_len = 0
+            self.backward_0_len = 0
+            self.plot_save_len = (self.forward_start_len + self.forward_12_len + self.forward_8_len + self.forward_4_len + self.forward_0_len 
+                                    + self.backward_12_len + self.backward_8_len + self.backward_4_len + self.backward_0_len)
 
+            self.forward_start_count = 0
+            self.forward_12_count = 0
+            self.forward_8_count = 0
+            self.forward_4_count = 0
+            self.forward_0_count = 0
+            self.backward_12_count = 0
+            self.backward_8_count = 0
+            self.backward_4_count = 0
+            self.backward_0_count = 0
+
+            self.forward_start = True
+            self.forward_12 = True
+            self.forward_8 = True
+            self.forward_4 = True
+            self.forward_0 = True
+            self.backward_12 = True
+            self.backward_8 = True
+            self.backward_4 = True
+            self.backward_0 = True
+
+            # print("START VEDEO RECORDING")
+            # self.start_recording()
+        
+        if PREDEFINED_RESAMPLE_TRY_EVAL:
+            self.forward_start_len = 50
+            self.forward_12_len = 50
+            self.forward_8_len = 50
+            self.forward_4_len = 0
+            self.forward_0_len = 50
+            self.backward_12_len = 50
+            self.backward_8_len = 30
+            self.backward_4_len = 0
+            self.backward_0_len = 30
+            self.plot_save_len = (self.forward_start_len + self.forward_12_len + self.forward_8_len + self.forward_4_len + self.forward_0_len 
+                                    + self.backward_12_len + self.backward_8_len + self.backward_4_len + self.backward_0_len)
+
+            self.forward_start_count = 0
+            self.forward_12_count = 0
+            self.forward_8_count = 0
+            self.forward_4_count = 0
+            self.forward_0_count = 0
+            self.backward_12_count = 0
+            self.backward_8_count = 0
+            self.backward_4_count = 0
+            self.backward_0_count = 0
+
+            self.forward_start = True
+            self.forward_12 = True
+            self.forward_8 = True
+            self.forward_4 = True
+            self.forward_0 = True
+            self.backward_12 = True
+            self.backward_8 = True
+            self.backward_4 = True
+            self.backward_0 = True
+        
+        if RANDOM_RESAMPLE_EVAL:
+            self.run_num = 3
+
+            self.duplicate = True
+            if self.duplicate:
+                # duplicated_cmd_record_path = "/home/psxkf4/Genesis/logs/paper/data/cmdlen/slosh_free_no_acc_profile_MLP_run1_cmdlen.txt"
+                duplicated_cmd_record_path = f"/home/psxkf4/Genesis/logs/paper/data/cmdlen/slosh_free_no_acc_profile_MLP_run{self.run_num}_cmdlen.txt"
+
+            self.start_stop_cmd = True
+            self.forward1_cmd = True
+            self.forward2_cmd = True
+            self.forward3_cmd = True
+            self.middle_stop_cmd = True
+            self.backward1_cmd = True
+            self.backward2_cmd = True
+            self.backward3_cmd = True
+            self.finish_stop_cmd = True
+
+            self.start_stop_cmd_count = 0
+            self.forward1_cmd_count = 0
+            self.forward2_cmd_count = 0
+            self.forward3_cmd_count = 0
+            self.middle_stop_cmd_count = 0
+            self.backward1_cmd_count = 0
+            self.backward2_cmd_count = 0
+            self.backward3_cmd_count = 0
+            self.finish_stop_cmd_count = 0
+
+            if not self.duplicate:
+                self.start_stop_cmd_len = 50
+                self.forward1_cmd_len = random.randint(0, 50)
+                self.forward2_cmd_len = random.randint(0, 50)
+                self.forward3_cmd_len = random.randint(0, 50)
+                self.middle_stop_cmd_len = 50
+                self.backward1_cmd_len = random.randint(0, 50)
+                self.backward2_cmd_len = random.randint(0, 50)
+                self.backward3_cmd_len = random.randint(0, 50)
+                self.finish_stop_cmd_len = 50
+
+                self.forward_cmd_speeds = [1.0, 0.8, 0.4]
+                self.backward_cmd_speeds = [-1.0, -0.8, -0.4]
+            else:
+                self.load_command_lengths_and_velocities(duplicated_cmd_record_path)
+
+            self.plot_save_len = (self.start_stop_cmd_len + self.forward1_cmd_len + self.forward2_cmd_len + self.forward3_cmd_len 
+                                    + self.middle_stop_cmd_len + self.backward1_cmd_len + self.backward2_cmd_len + self.backward3_cmd_len + self.finish_stop_cmd_len)
+
+        if VIDEO_RECORD:
+            self.video_record_count = 0
+            self.video_record_len = 100
+            print("START VEDEO RECORDING")
+            self.start_recording()
+
+    def load_command_lengths_and_velocities(self, file_path):
+        with open(file_path, "r") as f:
+            lines = f.readlines()
+
+        for line in lines:
+            if "Start Stop Length" in line:
+                self.start_stop_cmd_len = int(line.split(":")[1].strip())
+            elif "Forward 1 Length" in line:
+                self.forward1_cmd_len = int(line.split(":")[1].strip())
+            elif "Forward 1 Velocity" in line:
+                self.forward1_cmd_vel = float(line.split(":")[1].strip())
+            elif "Forward 2 Length" in line:
+                self.forward2_cmd_len = int(line.split(":")[1].strip())
+            elif "Forward 2 Velocity" in line:
+                self.forward2_cmd_vel = float(line.split(":")[1].strip())
+            elif "Forward 3 Length" in line:
+                self.forward3_cmd_len = int(line.split(":")[1].strip())
+            elif "Forward 3 Velocity" in line:
+                self.forward3_cmd_vel = float(line.split(":")[1].strip())
+            elif "Middle Stop Length" in line:
+                self.middle_stop_cmd_len = int(line.split(":")[1].strip())
+            elif "Backward 1 Length" in line:
+                self.backward1_cmd_len = int(line.split(":")[1].strip())
+            elif "Backward 1 Velocity" in line:
+                self.backward1_cmd_vel = float(line.split(":")[1].strip())
+            elif "Backward 2 Length" in line:
+                self.backward2_cmd_len = int(line.split(":")[1].strip())
+            elif "Backward 2 Velocity" in line:
+                self.backward2_cmd_vel = float(line.split(":")[1].strip())
+            elif "Backward 3 Length" in line:
+                self.backward3_cmd_len = int(line.split(":")[1].strip())
+            elif "Backward 3 Velocity" in line:
+                self.backward3_cmd_vel = float(line.split(":")[1].strip())
+            elif "Finish Stop Length" in line:
+                self.finish_stop_cmd_len = int(line.split(":")[1].split(",")[0].strip())
+
+        print("=== Command Lengths ===")
+        print(f"Start Stop Length: {self.start_stop_cmd_len}")
+        print(f"Forward 1 Length: {self.forward1_cmd_len}")
+        print(f"Forward 2 Length: {self.forward2_cmd_len}")
+        print(f"Forward 3 Length: {self.forward3_cmd_len}")
+        print(f"Middle Stop Length: {self.middle_stop_cmd_len}")
+        print(f"Backward 1 Length: {self.backward1_cmd_len}")
+        print(f"Backward 2 Length: {self.backward2_cmd_len}")
+        print(f"Backward 3 Length: {self.backward3_cmd_len}")
+        print(f"Finish Stop Length: {self.finish_stop_cmd_len}")
+
+        print("\n=== Command Velocities ===")
+        print(f"Forward 1 Velocity: {self.forward1_cmd_vel}")
+        print(f"Forward 2 Velocity: {self.forward2_cmd_vel}")
+        print(f"Forward 3 Velocity: {self.forward3_cmd_vel}")
+        print(f"Backward 1 Velocity: {self.backward1_cmd_vel}")
+        print(f"Backward 2 Velocity: {self.backward2_cmd_vel}")
+        print(f"Backward 3 Velocity: {self.backward3_cmd_vel}")
+
+        # breakpoint()
 
     def init_camera_params(self):
         self.whole_view = False
@@ -1003,10 +1040,10 @@ class LeggedSfEnv:
             #     min_vx, max_vx = self.command_cfg["lin_vel_x_range"][0], self.command_cfg["lin_vel_x_range"][1]
             # self.commands[envs_idx, 0] = torch.clamp(self.commands[envs_idx, 0], min_vx, max_vx)
         
-            if self.commands[envs_idx, 0] > 0:
-                self.forward_count += 1
-            elif self.commands[envs_idx, 0] < 0:
-                self.backward_count += 1
+            # if self.commands[envs_idx, 0] > 0:
+            #     self.forward_count += 1
+            # elif self.commands[envs_idx, 0] < 0:
+            #     self.backward_count += 1
 
         # if not reset_flag: # record for tensorbard only when Go2 is walking
         #     self.commanded_lin_vel_x_walking = self.commands[envs_idx, 0]
@@ -1104,9 +1141,11 @@ class LeggedSfEnv:
             self.start_stop_cmd_count += 1
         elif self.forward1_cmd:
             if self.forward1_cmd_count == 0:
-                self.lin_vel_x_cmd = random.choice(self.forward_cmd_speeds)
-            print("Resampling forward velocity randomly: ", self.lin_vel_x_cmd)
-            self.commands[0, 0] = self.lin_vel_x_cmd
+                if not self.duplicate:
+                    self.lin_vel_x_cmd = random.choice(self.forward_cmd_speeds)
+                    self.forward1_cmd_vel = self.lin_vel_x_cmd
+            print("Resampling forward velocity randomly: ", self.forward1_cmd_vel)
+            self.commands[0, 0] = self.forward1_cmd_vel
             self.commands[0, 1] = 0.0
             self.commands[0, 2] = 0.0
             if self.forward1_cmd_count == self.forward1_cmd_len:
@@ -1114,9 +1153,11 @@ class LeggedSfEnv:
             self.forward1_cmd_count += 1
         elif self.forward2_cmd:
             if self.forward2_cmd_count == 0:
-                self.lin_vel_x_cmd = random.choice(self.forward_cmd_speeds)
-            print("Resampling forward velocity randomly: ", self.lin_vel_x_cmd)
-            self.commands[0, 0] = self.lin_vel_x_cmd
+                if not self.duplicate:
+                    self.lin_vel_x_cmd = random.choice(self.forward_cmd_speeds)
+                    self.forward2_cmd_vel = self.lin_vel_x_cmd
+            print("Resampling forward velocity randomly: ", self.forward2_cmd_vel)
+            self.commands[0, 0] = self.forward2_cmd_vel
             self.commands[0, 1] = 0.0
             self.commands[0, 2] = 0.0
             if self.forward2_cmd_count == self.forward2_cmd_len:
@@ -1124,9 +1165,11 @@ class LeggedSfEnv:
             self.forward2_cmd_count += 1
         elif self.forward3_cmd:
             if self.forward3_cmd_count == 0:
-                self.lin_vel_x_cmd = random.choice(self.forward_cmd_speeds)
-            print("Resampling forward velocity randomly: ", self.lin_vel_x_cmd)
-            self.commands[0, 0] = self.lin_vel_x_cmd
+                if not self.duplicate:
+                    self.lin_vel_x_cmd = random.choice(self.forward_cmd_speeds)
+                    self.forward3_cmd_vel = self.lin_vel_x_cmd
+            print("Resampling forward velocity randomly: ", self.forward3_cmd_vel)
+            self.commands[0, 0] = self.forward3_cmd_vel
             self.commands[0, 1] = 0.0
             self.commands[0, 2] = 0.0
             if self.forward3_cmd_count == self.forward3_cmd_len:
@@ -1143,9 +1186,11 @@ class LeggedSfEnv:
             self.middle_stop_cmd_count += 1
         elif self.backward1_cmd:
             if self.backward1_cmd_count == 0:
-                self.lin_vel_x_cmd = random.choice(self.backward_cmd_speeds)
-            print("Resampling forward velocity randomly: ", self.lin_vel_x_cmd)
-            self.commands[0, 0] = self.lin_vel_x_cmd
+                if not self.duplicate:
+                    self.lin_vel_x_cmd = random.choice(self.backward_cmd_speeds)
+                    self.backward1_cmd_vel = self.lin_vel_x_cmd
+            print("Resampling forward velocity randomly: ", self.backward1_cmd_vel)
+            self.commands[0, 0] = self.backward1_cmd_vel
             self.commands[0, 1] = 0.0
             self.commands[0, 2] = 0.0
             if self.backward1_cmd_count == self.backward1_cmd_len:
@@ -1153,9 +1198,11 @@ class LeggedSfEnv:
             self.backward1_cmd_count += 1
         elif self.backward2_cmd:
             if self.backward2_cmd_count == 0:
-                self.lin_vel_x_cmd = random.choice(self.backward_cmd_speeds)
-            print("Resampling forward velocity randomly: ", self.lin_vel_x_cmd)
-            self.commands[0, 0] = self.lin_vel_x_cmd
+                if not self.duplicate:
+                    self.lin_vel_x_cmd = random.choice(self.backward_cmd_speeds)
+                    self.backward2_cmd_vel = self.lin_vel_x_cmd
+            print("Resampling forward velocity randomly: ", self.backward2_cmd_vel)
+            self.commands[0, 0] = self.backward2_cmd_vel
             self.commands[0, 1] = 0.0
             self.commands[0, 2] = 0.0
             if self.backward2_cmd_count == self.backward2_cmd_len:
@@ -1163,9 +1210,11 @@ class LeggedSfEnv:
             self.backward2_cmd_count += 1
         elif self.backward3_cmd:
             if self.backward3_cmd_count == 0:
-                self.lin_vel_x_cmd = random.choice(self.backward_cmd_speeds)
-            print("Resampling forward velocity randomly: ", self.lin_vel_x_cmd)
-            self.commands[0, 0] = self.lin_vel_x_cmd
+                if not self.duplicate:
+                    self.lin_vel_x_cmd = random.choice(self.backward_cmd_speeds)
+                    self.backward3_cmd_vel = self.lin_vel_x_cmd
+            print("Resampling forward velocity randomly: ", self.backward3_cmd_vel)
+            self.commands[0, 0] = self.backward3_cmd_vel
             self.commands[0, 1] = 0.0
             self.commands[0, 2] = 0.0
             if self.backward3_cmd_count == self.backward3_cmd_len:
@@ -1802,7 +1851,7 @@ class LeggedSfEnv:
             if self.a_count == 10000:
                 self.show_plot()
         
-        if PLOT_TILT_ERROR_VEL_ACC_HEIGHT_COMLEN:
+        if PLOT_TILT_ERROR_VEL_ACC_HEIGHT_CMDLEN:
             # 1. Compute raw a_x, a_z
             ax = (self.base_lin_vel_x - self.last_base_lin_vel_x) / (1 / self.linvel_update_actual_freq)
             az = -9.8 + (self.base_lin_vel_z - self.last_base_lin_vel_z) / (1 / self.linvel_update_actual_freq)
@@ -1845,34 +1894,41 @@ class LeggedSfEnv:
 
             if self.a_count == self.plot_save_len:
                 base_path = "/home/psxkf4/Genesis/logs/paper/data/pitch"
-                file_name = self.folder_name + ".png"
+                # file_name = self.folder_name + "_tilt.png"
+                file_name = f"{self.folder_name}_run{self.run_num}_tilt.png"
                 pitch_path = os.path.join(base_path, file_name)
 
                 base_path = "/home/psxkf4/Genesis/logs/paper/data/error"
-                file_name = self.folder_name + "_error.png"
+                # file_name = self.folder_name + "_error.png"
+                file_name = f"{self.folder_name}_run{self.run_num}_error.png"
                 error_path = os.path.join(base_path, file_name)
 
                 base_path = "/home/psxkf4/Genesis/logs/paper/data/linvel_x"
-                file_name = self.folder_name + "_linvel_x.png"
+                # file_name = self.folder_name + "_linvel_x.png"
+                file_name = f"{self.folder_name}_run{self.run_num}_linvel_x.png"
                 linvel_path = os.path.join(base_path, file_name)
 
                 base_path = "/home/psxkf4/Genesis/logs/paper/data/acc"
-                file_name = self.folder_name + "_acc.png"
+                # file_name = self.folder_name + "_acc.png"
+                file_name = f"{self.folder_name}_run{self.run_num}_acc.png"
                 acc_path = os.path.join(base_path, file_name)
 
                 base_path = "/home/psxkf4/Genesis/logs/paper/data/height"
-                file_name = self.folder_name + "_height.png"
+                # file_name = self.folder_name + "_height.png"
+                file_name = f"{self.folder_name}_run{self.run_num}_height.png"
                 height_path = os.path.join(base_path, file_name)
 
-                base_path = "/home/psxkf4/Genesis/logs/paper/data/comlen"
-                file_name = self.folder_name + "_comlen.txt"
-                comlen_path = os.path.join(base_path, file_name)
+                base_path = "/home/psxkf4/Genesis/logs/paper/data/cmdlen"
+                # file_name = self.folder_name + "_cmdlen.txt"
+                file_name = f"{self.folder_name}_run{self.run_num}_cmdlen.txt"
+                cmdlen_path = os.path.join(base_path, file_name)
 
                 base_path = "/home/psxkf4/Genesis/logs/paper/data/stats"
-                file_name = self.folder_name + "_stats.txt"
+                # file_name = self.folder_name + "_stats.txt"
+                file_name = f"{self.folder_name}_run{self.run_num}_stats.txt"
                 stats_path = os.path.join(base_path, file_name)
 
-                self.update_plot_tilt_error_vel_acc_height_comlen(pitch_path, error_path, linvel_path, acc_path, height_path, comlen_path, stats_path)
+                self.update_plot_tilt_error_vel_acc_height_cmdlen(pitch_path, error_path, linvel_path, acc_path, height_path, cmdlen_path, stats_path)
 
             # if self.a_count == 10000:
             #     self.show_plot()
@@ -1926,7 +1982,33 @@ class LeggedSfEnv:
 
         plt.pause(0.01)  # For real-time updates
 
-    def update_plot_tilt_error_vel_acc_height_comlen(self, pitch_path=None, error_path=None,linvel_path=None, acc_path=None, height_path=None, comlen_path=None, stats_path=None):
+    def update_plot_tilt_error_vel_acc_height_cmdlen(self, pitch_path=None, error_path=None,linvel_path=None, acc_path=None, height_path=None, cmdlen_path=None, stats_path=None):
+        tick_durations = [
+            self.start_stop_cmd_len,
+            self.forward1_cmd_len,
+            self.forward2_cmd_len,
+            self.forward3_cmd_len,
+            self.middle_stop_cmd_len,
+            self.backward1_cmd_len,
+            self.backward2_cmd_len,
+            self.backward3_cmd_len,
+            self.finish_stop_cmd_len
+        ]
+        tick_positions = np.cumsum(tick_durations)
+        tick_positions = np.insert(tick_positions, 0, 0)
+        tick_labels = [
+            "Start",
+            "Fwd1",
+            "Fwd2",
+            "Fwd3",
+            "Stop",
+            "Bwd1",
+            "Bwd2",
+            "Bwd3",
+            "End",
+            "Finish"
+        ]
+        
         self.axs1.cla()
 
         # Convert to NumPy before plotting
@@ -1938,6 +2020,10 @@ class LeggedSfEnv:
         self.axs1.set_xlabel("Time Steps")
         self.axs1.set_ylabel("Tilt [degrees]")
         self.axs1.set_ylim(-14.0, 14.0)
+        self.axs1.set_xticks(tick_positions)
+        # self.axs1.set_xticklabels(tick_labels)
+        # self.axs1.tick_params(axis='x', labelsize=6)
+        self.axs1.set_xticklabels([])   
         self.axs1.legend()
         # self.axs1.set_title("Desired and Current Pitch")
 
@@ -1946,9 +2032,10 @@ class LeggedSfEnv:
         self.axs2.set_xlabel("Time Steps")
         self.axs2.set_ylabel("Error [degrees]")
         self.axs2.set_ylim(-2.0, 10.0)
+        self.axs2.set_xticks(tick_positions)
+        self.axs2.set_xticklabels([]) 
         self.axs2.legend()
         # self.axs2.set_title("Pitch Error")
-
 
         # Convert to NumPy before plotting
         lin_vel_x_np = self.to_numpy(self.lin_vel_x_list)
@@ -1960,6 +2047,8 @@ class LeggedSfEnv:
         self.axs3.set_xlabel("Time Steps")
         self.axs3.set_ylabel("Velocity [m/s]")
         self.axs3.set_ylim(-5.0, 5.0)
+        self.axs3.set_xticks(tick_positions)
+        self.axs3.set_xticklabels([])
         self.axs3.legend()
 
         # Convert to NumPy before plotting
@@ -1972,6 +2061,8 @@ class LeggedSfEnv:
         self.axs4.set_xlabel("Time Steps")
         self.axs4.set_ylabel("Acc [m/s^2]")
         self.axs4.set_ylim(-14.0, 6.0)
+        self.axs4.set_xticks(tick_positions)
+        self.axs4.set_xticklabels([])
         self.axs4.legend()
 
         self.axs5.cla()
@@ -1979,6 +2070,8 @@ class LeggedSfEnv:
         self.axs5.set_xlabel("Time Steps")
         self.axs5.set_ylabel("Base Height [m]")
         self.axs5.set_ylim(0.0, 0.75)
+        self.axs5.set_xticks(tick_positions)
+        self.axs5.set_xticklabels([])
         self.axs5.legend()
 
         # Compute stats for pitch error
@@ -1989,30 +2082,36 @@ class LeggedSfEnv:
 
         print(f"Pitch Error - Mean: {mean_error:.3f}, Std: {std_error:.3f}, Max: {max_error:.3f}")
 
-        if comlen_path:
-            with open(comlen_path, "w") as f:
+        if cmdlen_path:
+            with open(cmdlen_path, "w") as f:
                 f.write(f"Random Velocity Command Length\n")
                 f.write(f"-----------------------\n")
                 f.write(f"Start Stop Length: {self.start_stop_cmd_len}\n")
                 f.write(f"Forward 1 Length: {self.forward1_cmd_len}\n")
+                f.write(f"Forward 1 Velocity: {self.forward1_cmd_vel}\n")
                 f.write(f"Forward 2 Length: {self.forward2_cmd_len}\n")
+                f.write(f"Forward 2 Velocity: {self.forward2_cmd_vel}\n")
                 f.write(f"Forward 3 Length: {self.forward3_cmd_len}\n")
+                f.write(f"Forward 3 Velocity: {self.forward3_cmd_vel}\n")
                 f.write(f"Middle Stop Length: {self.middle_stop_cmd_len}\n")
                 f.write(f"Backward 1 Length: {self.backward1_cmd_len}\n")
+                f.write(f"Backward 1 Velocity: {self.backward1_cmd_vel}\n")
                 f.write(f"Backward 2 Length: {self.backward2_cmd_len}\n")
+                f.write(f"Backward 2 Velocity: {self.backward2_cmd_vel}\n")
                 f.write(f"Backward 3 Length: {self.backward3_cmd_len}\n")
+                f.write(f"Backward 3 Velocity: {self.backward3_cmd_vel}\n")
                 f.write(f"Finish Stop Length: {self.finish_stop_cmd_len}\n")
-            print(f"Command length saved to {comlen_path}")
+            print(f"Command length saved to {cmdlen_path}")
 
         # Save stats to text file
         if stats_path:
             with open(stats_path, "w") as f:
-                f.write(f"Pitch Error Statistics\n")
+                f.write(f"Tilt Error Statistics\n")
                 f.write(f"-----------------------\n")
                 f.write(f"Mean: {mean_error:.6f}\n")
                 f.write(f"Standard Deviation: {std_error:.6f}\n")
                 f.write(f"Maximum: {max_error:.6f}\n")
-            print(f"Pitch error stats saved to {stats_path}")
+            print(f"Tilt error stats saved to {stats_path}")
 
         if pitch_path and error_path and linvel_path and acc_path and height_path:
             print("PLOTS ARE SAVED")
