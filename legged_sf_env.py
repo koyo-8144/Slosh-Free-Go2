@@ -782,12 +782,12 @@ class LeggedSfEnv:
             self.backward_0 = True
         
         if RANDOM_RESAMPLE_EVAL:
-            self.run_num = 3
+            self.run_num = 10
 
-            self.duplicate = True
+            self.duplicate = False
             if self.duplicate:
-                # duplicated_cmd_record_path = "/home/psxkf4/Genesis/logs/paper/data/cmdlen/slosh_free_no_acc_profile_MLP_run1_cmdlen.txt"
                 duplicated_cmd_record_path = f"/home/psxkf4/Genesis/logs/paper/data/cmdlen/slosh_free_no_acc_profile_MLP_run{self.run_num}_cmdlen.txt"
+                # duplicated_cmd_record_path = f"/home/psxkf4/Genesis/logs/paper/data/cmdlen/no_slosh_free_MLP_run{self.run_num}_cmdlen.txt"
 
             self.start_stop_cmd = True
             self.forward1_cmd = True
