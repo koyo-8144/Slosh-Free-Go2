@@ -457,6 +457,18 @@ class LeggedSfEnv:
             self.x0 = torch.zeros((self.num_envs, 3), device=self.device, dtype=gs.tc_float)
             self.xf = torch.zeros((self.num_envs, 3), device=self.device, dtype=gs.tc_float)
 
+            self.env0_command_x = 0.0
+            self.env0_command_y = 0.0
+            self.env0_command_z = 0.0
+
+            self.env0_x0_x = self.x0[0, 0]
+            self.env0_x0_y = self.x0[0, 1]
+            self.env0_x0_z = self.x0[0, 2]
+            self.env0_xf_x = self.xf[0, 0]
+            self.env0_xf_y = self.xf[0, 1]
+            self.env0_xf_z = self.xf[0, 2]
+            # print("self.env0_x0_x: ", self.env0_x0_x)
+            # breakpoint()
 
         self.time_out_buf = torch.zeros((self.num_envs,), device=self.device, dtype=gs.tc_int)
         self.out_of_bounds_buf = torch.zeros((self.num_envs,), device=self.device, dtype=gs.tc_int)
@@ -1131,7 +1143,7 @@ class LeggedSfEnv:
         # self.traj_t[envs_idx] += self.dt
 
         # x0: starting positions for environments being resampled
-        x0 = self.base_pos[envs_idx].clone()
+        self.x0 = self.base_pos[envs_idx].clone()
         # s: normalized time for each environment (only for the ones being resampled)
         s = self.traj_t[envs_idx] / self.max_episode_length[envs_idx]
         # Compute scaling using a smooth polynomial and unsqueeze to shape [N, 1]
@@ -1141,7 +1153,7 @@ class LeggedSfEnv:
                                                 device=self.device,
                                                 dtype=self.xf.dtype).unsqueeze(-1)
         # Compute velocity command v for these environments
-        v = (self.xf[envs_idx] - x0) * scaling / max_episode_length_tensor
+        v = (self.xf[envs_idx] - self.x0) * scaling / max_episode_length_tensor
         # Increment trajectory timer for these envs
         self.traj_t[envs_idx] += self.dt
 
@@ -1160,6 +1172,13 @@ class LeggedSfEnv:
         self.commands[envs_idx, 0] = v[:, 0]
         self.commands[envs_idx, 1] = v[:, 1]
         self.commands[envs_idx, 2] = v[:, 2]
+
+        self.env0_command_x = v[0, 0]
+        self.env0_command_y = v[0, 1]
+        self.env0_command_z = v[0, 2]
+        self.env0_x0_x = self.x0[0, 0]
+        self.env0_x0_y = self.x0[0, 1]
+        self.env0_x0_z = self.x0[0, 2]
 
         # self.commands[envs_idx, 0] = 0.0
         # self.commands[envs_idx, 1] = 0.0
@@ -1614,7 +1633,9 @@ class LeggedSfEnv:
 
     def get_data(self):
         # return self.lin_vel_x_range_min, self.lin_vel_x_range_max, self.tracking_lin_vel_rew_mean, self.tracking_lin_vel_rew_threshold_one, self.desired_pitch_mean, self.pitch_count, self.action_rate_scale
-        return self.mean_pitch_error_normalized, self.mean_accel_norm_normalized, self.smoothed_ax_mean, self.smoothed_az_mean, self.smoothed_desired_ax_mean
+        if TRAJECTORY_RESAMPLE:
+            # return self.mean_pitch_error_normalized, self.mean_accel_norm_normalized, self.smoothed_ax_mean, self.smoothed_az_mean, self.smoothed_desired_ax_mean, self.env0_command_x, self.env0_command_y, self.env0_command_z
+            return self.env0_command_x, self.env0_command_y, self.env0_command_z, self.env0_x0_x, self.env0_x0_y, self.env0_x0_z, self.env0_xf_x, self.env0_xf_y, self.env0_xf_z, self.max_episode_length[0]
 
     def step(self, actions):
         # self.actions = torch.clip(actions, -self.env_cfg["clip_actions"], self.env_cfg["clip_actions"])

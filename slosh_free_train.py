@@ -197,7 +197,7 @@ def get_cfgs():
         "min_pitch_num": 5.0,
         "action_rate_weight_decay_rate": 0.5,
         "linvel_update_freq": 10.0,
-        "alpha": 0.7,
+        "alpha": 0.8,
         "ax_threshold": 0.3,
         "max_pitch_error_weight": 10,
         "reward_scales": {
