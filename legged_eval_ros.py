@@ -23,8 +23,8 @@ class Go2EvaluationNode(Node):
         self.device="cuda:0"
 
         # Declare and retrieve parameters
-        # self.declare_parameter('exp_name', 'go2_slosh_free_v3')
-        self.declare_parameter('exp_name', 'paper')
+        self.declare_parameter('exp_name', 'go2_slosh_free_v3')
+        # self.declare_parameter('exp_name', 'paper')
         self.declare_parameter('ckpt', 10000)
 
         self.exp_name = self.get_parameter('exp_name').value
@@ -44,13 +44,14 @@ class Go2EvaluationNode(Node):
         most_recent_subdir = sorted(subdirs)[-1] if subdirs else None
         log_dir = os.path.join(log_dir, most_recent_subdir)
 
-        log_dir = "/home/psxkf4/Genesis/logs/paper/no_slosh_free_MLP"
+        # log_dir = "/home/psxkf4/Genesis/logs/paper/no_slosh_free_MLP"
         # log_dir = "/home/psxkf4/Genesis/logs/paper/slosh_free_acc_profile_sigma03_LSTM"
         # log_dir = "/home/psxkf4/Genesis/logs/paper/slosh_free_acc_profile_sigma03_MLP"
         # log_dir = "/home/psxkf4/Genesis/logs/paper/slosh_free_no_acc_profile_LSTM"
         # log_dir = "/home/psxkf4/Genesis/logs/paper/slosh_free_no_acc_profile_MLP"
         # log_dir = "/home/psxkf4/Genesis/logs/paper/slosh_free_no_acc_profile_MLP_pitch_obs"
         # log_dir = "/home/psxkf4/Genesis/logs/paper/slosh_free_acc_profile_sigma03_MLP_clip025_dkl0005"
+        # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250410_112423"
 
         folder_name = log_dir.split("/")[-1]
 
@@ -61,6 +62,7 @@ class Go2EvaluationNode(Node):
         # print("reward_cfg: ", reward_cfg)
         # breakpoint()
         env_cfg["robot_mjcf"] = "xml/go2/go2.xml"
+
 
         self.env = LeggedSfEnv(
             num_envs=1,
@@ -86,13 +88,17 @@ class Go2EvaluationNode(Node):
 
         resume_path = os.path.join(log_dir, model_file)
 
-        resume_path = "/home/psxkf4/Genesis/logs/paper/no_slosh_free_MLP/model_10000.pt"
+        # resume_path = "/home/psxkf4/Genesis/logs/paper/no_slosh_free_MLP/model_10000.pt"
         # resume_path = "/home/psxkf4/Genesis/logs/paper/slosh_free_acc_profile_sigma03_LSTM/model_10000.pt"
         # resume_path = "/home/psxkf4/Genesis/logs/paper/slosh_free_acc_profile_sigma03_MLP/model_10000.pt"
         # resume_path = "/home/psxkf4/Genesis/logs/paper/slosh_free_no_acc_profile_LSTM/model_10000.pt"
         # resume_path = "/home/psxkf4/Genesis/logs/paper/slosh_free_no_acc_profile_MLP/model_8000.pt"
         # resume_path = "/home/psxkf4/Genesis/logs/paper/slosh_free_no_acc_profile_MLP_pitch_obs/model_6000.pt"
         # resume_path = "/home/psxkf4/Genesis/logs/paper/slosh_free_acc_profile_sigma03_MLP_clip025_dkl0005/model_12000.pt"
+
+        # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250409_203321/model_10000.pt"
+        # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250411_012456/model_10000.pt"
+        # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250410_112423/model_10000.pt"
 
         runner.load(resume_path)
         # resume_path = os.path.join(log_dir, f"model_{args.ckpt}.pt")

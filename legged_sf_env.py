@@ -17,21 +17,27 @@ import os
 PLOT_PITCH = 0
 PLOT_ACC = 0
 PLOT_ERROR = 0
-PLOT_TILT_ERROR_VEL_ACC_HEIGHT_CMDLEN = 1
+PLOT_TILT_ERROR_VEL_ACC_HEIGHT_CMDLEN = 0
 
 ACC_PROFILE_RESAMPLE = 0
+TRAJECTORY_RESAMPLE = 1
+
 PREDEFINED_RESAMPLE_EVAL = 0
 PREDEFINED_RESAMPLE_TRY_EVAL = 0
-RANDOM_RESAMPLE_EVAL = 1
+RANDOM_RESAMPLE_EVAL = 0
 
 PITCH_COMMAND_TRAIN = 0
 DESIRED_PITCH_COMMAND = 0
 
 LATERAL_CAM = 1
+FRONT_CAM = 0
 VIDEO_RECORD = 0
 
 RANDOM_INIT_ROT = 0
 DELAY = 0
+HIP_REDUCTION = 0
+
+ALIENWARE = 0
 
 # Helper function to get quaternion from Euler angles
 def quaternion_from_euler_tensor(roll_deg, pitch_deg, yaw_deg):
@@ -85,8 +91,11 @@ class LeggedSfEnv:
         self.dt = 1 / env_cfg['control_freq']
         sim_dt = self.dt / env_cfg['decimation']
         sim_substeps = 1
-        self.max_episode_length_s = env_cfg['episode_length_s']
-        self.max_episode_length = np.ceil(self.max_episode_length_s / self.dt)
+
+        if not TRAJECTORY_RESAMPLE:
+            self.max_episode_length_s = env_cfg['episode_length_s']
+            self.max_episode_length = np.ceil(self.max_episode_length_s / self.dt)
+        
         self.env_cfg = env_cfg
         self.obs_cfg = obs_cfg
         self.noise_cfg = noise_cfg
@@ -276,8 +285,9 @@ class LeggedSfEnv:
             self.env_cfg['termination_contact_link_names']
         )
         self.penalised_contact_indices = find_link_indices(
-            self.env_cfg['penalized_contact_link_names']
+            self.env_cfg['penalized_contact_link_names'] # ['base_link', 'thigh', 'calf'],
         )
+        # self.penalised_contact_indices = torch.tensor(self.penalised_contact_indices, device=self.device)
         self.feet_indices = find_link_indices(
             self.env_cfg['feet_link_names']
         )
@@ -403,8 +413,12 @@ class LeggedSfEnv:
         # Suppose you keep these as class attributes:
         self.ax_filtered = 0.0
         self.az_filtered = -9.8  # assuming near gravity at start
+        self.desired_ax_filtered = 0.0
         # alpha controls how much new data matters vs. old data (0 < alpha < 1)
         self.alpha = self.reward_cfg["alpha"]
+        self.smoothed_ax_mean = 0.0
+        self.smoothed_az_mean = 0.0
+        self.smoothed_desired_ax_mean = 0.0
         if ACC_PROFILE_RESAMPLE:
             self.acc_sigma = self.command_cfg["acc_sigma"]
             self.sign_flip_rate = self.command_cfg["sign_flip_rate"]
@@ -414,7 +428,7 @@ class LeggedSfEnv:
             self.forward_count = 0
             self.backward_count = 0
 
-            self.plot_save_len = 1000
+            # self.plot_save_len = 1000
 
         self.base_ang_vel = torch.zeros((self.num_envs, 3), device=self.device, dtype=gs.tc_float)
         self.projected_gravity = torch.zeros((self.num_envs, 3), device=self.device, dtype=gs.tc_float)
@@ -428,6 +442,22 @@ class LeggedSfEnv:
         self.rew_buf = torch.zeros((self.num_envs,), device=self.device, dtype=gs.tc_float)
         self.reset_buf = torch.ones((self.num_envs,), device=self.device, dtype=gs.tc_int)
         self.episode_length_buf = torch.zeros((self.num_envs,), device=self.device, dtype=gs.tc_int)
+        if TRAJECTORY_RESAMPLE:
+            max_episode_length_s = self.env_cfg['episode_length_s']
+            self.max_episode_length = torch.full(
+                (self.num_envs,), 
+                fill_value=np.ceil(max_episode_length_s / self.dt), 
+                device=self.device, 
+                dtype=gs.tc_float
+            ) # torch.Size([4096])
+            # self.max_episode_length = np.ceil(max_episode_length_s / self.dt)
+            self.init_random_ep_len_max = np.ceil(max_episode_length_s / self.dt)
+
+            self.traj_t = torch.zeros(self.num_envs, device=self.device, dtype=gs.tc_float)
+            self.x0 = torch.zeros((self.num_envs, 3), device=self.device, dtype=gs.tc_float)
+            self.xf = torch.zeros((self.num_envs, 3), device=self.device, dtype=gs.tc_float)
+
+
         self.time_out_buf = torch.zeros((self.num_envs,), device=self.device, dtype=gs.tc_int)
         self.out_of_bounds_buf = torch.zeros((self.num_envs,), device=self.device, dtype=gs.tc_int)
         self.commands = torch.zeros((self.num_envs, self.num_commands), device=self.device, dtype=gs.tc_float)
@@ -480,8 +510,9 @@ class LeggedSfEnv:
         self.base_euler = quat_to_xyz(
             transform_quat_by_quat(torch.ones_like(self.base_quat) * self.inv_base_init_quat, self.base_quat)
         )
-        self.rot_y = self.base_euler[:, 1]
-        self.rot_y = self.rot_y.unsqueeze(-1)  # Shape: [4096, 1]
+        self.rot_y_deg = self.base_euler[:, 1]
+        self.rot_y_deg = self.rot_y_deg.unsqueeze(-1)  # Shape: [4096, 1]
+        self.rot_y = torch.deg2rad(self.rot_y_deg)
         self.default_dof_pos = torch.tensor(
             [self.env_cfg["default_joint_angles"][name] for name in self.env_cfg["dof_names"]],
             device=self.device,
@@ -782,12 +813,24 @@ class LeggedSfEnv:
             self.backward_0 = True
         
         if RANDOM_RESAMPLE_EVAL:
-            self.run_num = 10
+            self.run_num = "TEST"
+            self.test_plot = True
 
             self.duplicate = False
-            if self.duplicate:
-                duplicated_cmd_record_path = f"/home/psxkf4/Genesis/logs/paper/data/cmdlen/slosh_free_no_acc_profile_MLP_run{self.run_num}_cmdlen.txt"
-                # duplicated_cmd_record_path = f"/home/psxkf4/Genesis/logs/paper/data/cmdlen/no_slosh_free_MLP_run{self.run_num}_cmdlen.txt"
+            self.record_video = False
+
+            if ALIENWARE:
+                if self.duplicate:
+                    duplicated_cmd_record_path = f"/home/alienware/koyo_ws/Genesis/Slosh-Free-Go2-Logs/data/cmdlen/slosh_free_no_acc_profile_MLP_run{self.run_num}_cmdlen.txt"
+                    # duplicated_cmd_record_path = f"/home/alienware/koyo_ws/Genesis/Slosh-Free-Go2-Logs/data/cmdlen/no_slosh_free_MLP_run{self.run_num}_cmdlen.txt"
+            else:
+                if self.duplicate:
+                    duplicated_cmd_record_path = f"/home/psxkf4/Genesis/logs/paper/data/cmdlen/slosh_free_no_acc_profile_MLP_run{self.run_num}_cmdlen.txt"
+                    # duplicated_cmd_record_path = f"/home/psxkf4/Genesis/logs/paper/data/cmdlen/no_slosh_free_MLP_run{self.run_num}_cmdlen.txt"
+
+            if self.record_video:
+                print("START VEDEO RECORDING")
+                self.start_recording()
 
             self.start_stop_cmd = True
             self.forward1_cmd = True
@@ -810,16 +853,29 @@ class LeggedSfEnv:
             self.finish_stop_cmd_count = 0
 
             if not self.duplicate:
-                self.start_stop_cmd_len = 50
-                self.forward1_cmd_len = random.randint(0, 50)
-                self.forward2_cmd_len = random.randint(0, 50)
-                self.forward3_cmd_len = random.randint(0, 50)
-                self.middle_stop_cmd_len = 50
-                self.backward1_cmd_len = random.randint(0, 50)
-                self.backward2_cmd_len = random.randint(0, 50)
-                self.backward3_cmd_len = random.randint(0, 50)
-                self.finish_stop_cmd_len = 50
+                if self.test_plot:
+                    self.start_stop_cmd_len = 50
+                    self.forward1_cmd_len = random.randint(50, 100)
+                    self.forward2_cmd_len = random.randint(50, 100)
+                    self.forward3_cmd_len = random.randint(50, 100)
+                    self.middle_stop_cmd_len = 80
+                    self.backward1_cmd_len = random.randint(50, 100)
+                    self.backward2_cmd_len = random.randint(50, 100)
+                    self.backward3_cmd_len = random.randint(50, 100)
+                    self.finish_stop_cmd_len = 50
+                else:
+                    self.start_stop_cmd_len = 50
+                    self.forward1_cmd_len = random.randint(0, 50)
+                    self.forward2_cmd_len = random.randint(0, 50)
+                    self.forward3_cmd_len = random.randint(0, 50)
+                    self.middle_stop_cmd_len = 50
+                    self.backward1_cmd_len = random.randint(0, 50)
+                    self.backward2_cmd_len = random.randint(0, 50)
+                    self.backward3_cmd_len = random.randint(0, 50)
+                    self.finish_stop_cmd_len = 50
 
+                # self.forward_cmd_speeds = [1.0, 0.8, 0.4]
+                # self.backward_cmd_speeds = [-1.0, -0.8, -0.4]
                 self.forward_cmd_speeds = [1.0, 0.8, 0.4]
                 self.backward_cmd_speeds = [-1.0, -0.8, -0.4]
             else:
@@ -833,6 +889,13 @@ class LeggedSfEnv:
             self.video_record_len = 100
             print("START VEDEO RECORDING")
             self.start_recording()
+
+
+        self.max_accel_norm = torch.tensor(1.0, device=self.device)
+        self.max_pitch_error = torch.tensor(0.1, device=self.device)  # start >0 to avoid instability
+        self.mean_pitch_error_normalized = torch.tensor(0.0, device=self.device)
+        self.mean_accel_norm_normalized = torch.tensor(0.0, device=self.device)
+
 
     def load_command_lengths_and_velocities(self, file_path):
         with open(file_path, "r") as f:
@@ -1049,6 +1112,59 @@ class LeggedSfEnv:
         #     self.commanded_lin_vel_x_walking = self.commands[envs_idx, 0]
         # print('commanded lin vel x: ', self.commands[envs_idx, 0])
 
+    def _resample_trajectory(self, envs_idx, reset_flag):
+        # T = desired_duration  # Chosen based on aggressiveness (shorter T → more aggressive, faster motion)
+        # x0 = current_position
+        # xf = target_position
+        # t = 0
+        # dt = control_loop_time_step
+        # s = t / T
+        # v = (xf - x0) * (30*s**2 - 60*s**3 + 30*s**4) / T
+        # send_velocity_command(v)
+        # t += self.dt
+        
+        # x0 = self.base_pos[envs_idx].clone()
+        # s = self.traj_t[envs_idx] / self.max_episode_length
+        # scaling = (30*s**2 - 60*s**3 + 30*s**4).unsqueeze(-1)  # Shape: [N, 1]
+        # max_episode_length_tensor = torch.tensor(self.max_episode_length, device=self.device, dtype=self.xf.dtype).unsqueeze(-1)
+        # v = (self.xf[envs_idx] - x0) * scaling / max_episode_length_tensor
+        # self.traj_t[envs_idx] += self.dt
+
+        # x0: starting positions for environments being resampled
+        x0 = self.base_pos[envs_idx].clone()
+        # s: normalized time for each environment (only for the ones being resampled)
+        s = self.traj_t[envs_idx] / self.max_episode_length[envs_idx]
+        # Compute scaling using a smooth polynomial and unsqueeze to shape [N, 1]
+        scaling = (30*s**2 - 60*s**3 + 30*s**4).unsqueeze(-1)
+        # Create a tensor for the max episode lengths for these environments
+        max_episode_length_tensor = torch.tensor(self.max_episode_length[envs_idx],
+                                                device=self.device,
+                                                dtype=self.xf.dtype).unsqueeze(-1)
+        # Compute velocity command v for these environments
+        v = (self.xf[envs_idx] - x0) * scaling / max_episode_length_tensor
+        # Increment trajectory timer for these envs
+        self.traj_t[envs_idx] += self.dt
+
+        if not reset_flag: # every step resample, not reset due to failure or time out
+            # print("-----------------------------------------------------------------------------------")
+            # print("envs_idx (should be all): ", envs_idx)
+            # print("x0[envs_idx] (current pos): ", x0)
+            # print("max_episode_length[envs_idx] (should not change until timeout): ", self.max_episode_length[envs_idx])
+            # print("traj_t[envs_idx = all] (should be incremented every step): ", self.traj_t[envs_idx])
+            # print("s: should be incremented every step", s)
+            # print("xf[envs_idx = all] (should not change until timeout): ", self.xf[envs_idx])
+            # print("v should be incremented every step: ", v)
+            # print("-----------------------------------------------------------------------------------")
+            pass
+
+        self.commands[envs_idx, 0] = v[:, 0]
+        self.commands[envs_idx, 1] = v[:, 1]
+        self.commands[envs_idx, 2] = v[:, 2]
+
+        # self.commands[envs_idx, 0] = 0.0
+        # self.commands[envs_idx, 1] = 0.0
+        # self.commands[envs_idx, 2] = 0.0
+
     def _resample_predefined_commands(self):
         if self.forward_start:
             print("Starting resample")
@@ -1123,11 +1239,12 @@ class LeggedSfEnv:
                 self.backward_0 = False
             self.backward_0_count += 1
 
-            # print("STOP VIDEO RECORDING")
-            # base_path = "/home/psxkf4/Genesis/logs/paper/videos"
-            # file_name = self.folder_name + ".mp4"
-            # full_path = os.path.join(base_path, file_name)
-            # self.stop_recording(full_path)
+            if self.record_video:
+                print("STOP VIDEO RECORDING")
+                base_path = "/home/psxkf4/Genesis/logs/paper/videos"
+                file_name = self.folder_name + ".mp4"
+                full_path = os.path.join(base_path, file_name)
+                self.stop_recording(full_path)
     
     def _resample_random_commands_eval(self):
         if self.start_stop_cmd:
@@ -1495,9 +1612,9 @@ class LeggedSfEnv:
                 rgb=True,
             )
 
-    def give_runner_data(self):
+    def get_data(self):
         # return self.lin_vel_x_range_min, self.lin_vel_x_range_max, self.tracking_lin_vel_rew_mean, self.tracking_lin_vel_rew_threshold_one, self.desired_pitch_mean, self.pitch_count, self.action_rate_scale
-        return self.forward_count, self.backward_count
+        return self.mean_pitch_error_normalized, self.mean_accel_norm_normalized, self.smoothed_ax_mean, self.smoothed_az_mean, self.smoothed_desired_ax_mean
 
     def step(self, actions):
         # self.actions = torch.clip(actions, -self.env_cfg["clip_actions"], self.env_cfg["clip_actions"])
@@ -1584,11 +1701,12 @@ class LeggedSfEnv:
         self.base_euler = quat_to_xyz(
             transform_quat_by_quat(torch.ones_like(self.base_quat) * self.inv_base_init_quat, self.base_quat)
         )
-        # self.rot_y = self.base_euler[:, 1]
-        self.rot_y = self.base_euler[:, 1].unsqueeze(-1) 
-        # print("self.rot_y: ", self.rot_y)
+        # self.rot_y_deg = self.base_euler[:, 1]
+        self.rot_y_deg = self.base_euler[:, 1].unsqueeze(-1) 
+        # print("self.rot_y_deg: ", self.rot_y_deg)
+        self.rot_y = torch.deg2rad(self.rot_y_deg)
 
-        # print("Pitch: ", self.rot_y)
+        # print("Pitch: ", self.rot_y_deg)
         inv_base_quat = inv_quat(self.base_quat)
         self.base_lin_vel[:] = transform_by_quat(self.robot.get_vel(), inv_base_quat)
 
@@ -1607,15 +1725,30 @@ class LeggedSfEnv:
             self.robot.get_links_net_contact_force(),
             device=self.device,
             dtype=gs.tc_float,
-        )        
+        )       
+        # contact_force_tensor = self.robot.get_links_net_contact_force()
+        # # Make sure it's a torch tensor
+        # if not torch.is_tensor(contact_force_tensor):
+        #     contact_force_tensor = torch.tensor(contact_force_tensor, device=self.device, dtype=gs.tc_float)
+        # else:
+        #     contact_force_tensor = contact_force_tensor.to(device=self.device, dtype=gs.tc_float)
+        # # Optional: add shape check
+        # assert contact_force_tensor.shape == self.contact_forces.shape, \
+        #     f"Shape mismatch: {contact_force_tensor.shape} vs {self.contact_forces.shape}"
+        # self.contact_forces.copy_(contact_force_tensor)
+ 
         
-        # print("episode length: ", self.episode_length_buf)
+        # print("episode length[0]: ", self.episode_length_buf[0])
+        # episode length:  tensor([450, 500, 185,  ..., 350, 725, 704], device='cuda:0',
+        # dtype=torch.int32)
+        # print(int(self.env_cfg["resampling_time_s"] / self.dt)) # 1
+        # breakpoint()
         # resample commands
         envs_idx = (
             (self.episode_length_buf % int(self.env_cfg["resampling_time_s"] / self.dt) == 0)
             .nonzero(as_tuple=False)
             .flatten()
-        )
+        ) # This number (200) represents the interval—every 200 simulation steps, new high-level commands should be resampled.
 
         self.post_physics_step_callback()
         if ACC_PROFILE_RESAMPLE:
@@ -1627,6 +1760,9 @@ class LeggedSfEnv:
             self._resample_predefined_commands()
         elif RANDOM_RESAMPLE_EVAL:
             self._resample_random_commands_eval()
+        elif TRAJECTORY_RESAMPLE:
+            reset_flag = False
+            self._resample_trajectory(envs_idx, reset_flag)
         else:
             self._resample_commands(envs_idx)
         self._randomize_rigids(envs_idx)
@@ -1641,12 +1777,15 @@ class LeggedSfEnv:
             dofs_vel[:, :2] += push_vel
             self.robot.set_dofs_velocity(dofs_vel)
 
-
+        # print("self.episode_length_buf: ", self.episode_length_buf)
+        # print("self.max_episode_length: ", self.max_episode_length)
         self.check_termination()
         time_out_idx = (self.episode_length_buf > self.max_episode_length).nonzero(as_tuple=False).flatten()
         self.extras["time_outs"] = torch.zeros_like(self.reset_buf, device=self.device, dtype=gs.tc_float)
         self.extras["time_outs"][time_out_idx] = 1.0
+        # print("time_out_idx: ", time_out_idx)
 
+        # print("reset envs because of timeout and failures: ", self.reset_buf)
         self.reset_idx(self.reset_buf.nonzero(as_tuple=False).flatten())
 
         # compute reward
@@ -1693,7 +1832,7 @@ class LeggedSfEnv:
                 (self.dof_pos - self.default_dof_pos) * self.obs_scales["dof_pos"],  # 12
                 self.dof_vel * self.obs_scales["dof_vel"],  # 12
                 self.actions,  # 12
-                # self.rot_y, # 1
+                # self.rot_y_deg, # 1
                 # sin_phase, #4
                 # cos_phase #4
             ],
@@ -1709,7 +1848,7 @@ class LeggedSfEnv:
                 (self.dof_pos - self.default_dof_pos) * self.obs_scales["dof_pos"],  # 12
                 self.dof_vel * self.obs_scales["dof_vel"],  # 12
                 self.actions,  # 12
-                # self.rot_y, # 1
+                # self.rot_y_deg, # 1
                 # sin_phase, #4
                 # cos_phase #4
             ],
@@ -1763,7 +1902,7 @@ class LeggedSfEnv:
             # ax_val = ax.item()
             # az_val = az.item()
             desired_pitch_degrees = desired_pitch_degrees.item()
-            rot_y = self.rot_y.item()
+            rot_y = self.rot_y_deg.item()
 
             # print("current: ", base_lin_vel_x)
             # print("last: ", last_base_lin_vel_x)
@@ -1836,7 +1975,7 @@ class LeggedSfEnv:
             desired_pitch_degrees = torch.rad2deg(desired_pitch)
 
             desired_pitch_degrees = desired_pitch_degrees.item()
-            rot_y = self.rot_y.item()
+            rot_y = self.rot_y_deg.item()
             error = abs(desired_pitch_degrees - rot_y)
 
             print("Desired_pitch_degrees: ", desired_pitch_degrees)
@@ -1876,7 +2015,7 @@ class LeggedSfEnv:
             desired_pitch_degrees = torch.rad2deg(desired_pitch)
 
             desired_pitch_degrees = desired_pitch_degrees.item()
-            rot_y = self.rot_y.item()
+            rot_y = self.rot_y_deg.item()
             error = abs(desired_pitch_degrees - rot_y)
             linvel_x = self.base_lin_vel_x.item()
             last_linvel_x = self.last_base_lin_vel_x.item()
@@ -1893,37 +2032,100 @@ class LeggedSfEnv:
             self.append_limited(self.time_steps, self.a_count)
 
             if self.a_count == self.plot_save_len:
-                base_path = "/home/psxkf4/Genesis/logs/paper/data/pitch"
+                if ALIENWARE:
+                    if self.test_plot:
+                        base_path = "/home/alienware/koyo_ws/Genesis/test_data/tilt"
+                    else:
+                        base_path = "/home/alienware/koyo_ws/Genesis/Slosh-Free-Go2-Logs/data/tilt"
+                else:
+                    if self.test_plot:
+                        base_path = "/home/psxkf4/Genesis/logs/paper/test_data/tilt"
+                    else:
+                        base_path = "/home/psxkf4/Genesis/logs/paper/data/tilt"
                 # file_name = self.folder_name + "_tilt.png"
                 file_name = f"{self.folder_name}_run{self.run_num}_tilt.png"
                 pitch_path = os.path.join(base_path, file_name)
 
-                base_path = "/home/psxkf4/Genesis/logs/paper/data/error"
+                if ALIENWARE:
+                    if self.test_plot:
+                        base_path = "/home/alienware/koyo_ws/Genesis/test_data/error"
+                    else:
+                        base_path = "/home/alienware/koyo_ws/Genesis/Slosh-Free-Go2-Logs/data/error"
+                else:
+                    if self.test_plot:
+                        base_path = "/home/psxkf4/Genesis/logs/paper/test_data/error"
+                    else:
+                        base_path = "/home/psxkf4/Genesis/logs/paper/data/error"
                 # file_name = self.folder_name + "_error.png"
                 file_name = f"{self.folder_name}_run{self.run_num}_error.png"
                 error_path = os.path.join(base_path, file_name)
 
-                base_path = "/home/psxkf4/Genesis/logs/paper/data/linvel_x"
+                if ALIENWARE:
+                    if self.test_plot:
+                        base_path = "/home/alienware/koyo_ws/Genesis/test_data/linvel_x"
+                    else:
+                        base_path = "/home/alienware/koyo_ws/Genesis/Slosh-Free-Go2-Logs/data/linvel_x"
+                else:
+                    if self.test_plot:
+                        base_path = "/home/psxkf4/Genesis/logs/paper/test_data/linvel_x"
+                    else:
+                        base_path = "/home/psxkf4/Genesis/logs/paper/data/linvel_x"
                 # file_name = self.folder_name + "_linvel_x.png"
                 file_name = f"{self.folder_name}_run{self.run_num}_linvel_x.png"
                 linvel_path = os.path.join(base_path, file_name)
 
-                base_path = "/home/psxkf4/Genesis/logs/paper/data/acc"
+                if ALIENWARE:
+                    if self.test_plot:
+                        base_path = "/home/alienware/koyo_ws/Genesis/test_data/acc"
+                    else:
+                        base_path = "/home/alienware/koyo_ws/Genesis/Slosh-Free-Go2-Logs/data/acc"
+                else:
+                    if self.test_plot:
+                        base_path = "/home/psxkf4/Genesis/logs/paper/test_data/acc"
+                    else:
+                        base_path = "/home/psxkf4/Genesis/logs/paper/data/acc"
                 # file_name = self.folder_name + "_acc.png"
                 file_name = f"{self.folder_name}_run{self.run_num}_acc.png"
                 acc_path = os.path.join(base_path, file_name)
 
-                base_path = "/home/psxkf4/Genesis/logs/paper/data/height"
+                if ALIENWARE:
+                    if self.test_plot:
+                        base_path = "/home/alienware/koyo_ws/Genesis/test_data/height"
+                    else:
+                        base_path = "/home/alienware/koyo_ws/Genesis/Slosh-Free-Go2-Logs/data/height"
+                else:
+                    if self.test_plot:
+                        base_path = "/home/psxkf4/Genesis/logs/paper/test_data/height"
+                    else:
+                        base_path = "/home/psxkf4/Genesis/logs/paper/data/height"
                 # file_name = self.folder_name + "_height.png"
                 file_name = f"{self.folder_name}_run{self.run_num}_height.png"
                 height_path = os.path.join(base_path, file_name)
 
-                base_path = "/home/psxkf4/Genesis/logs/paper/data/cmdlen"
+                if ALIENWARE:
+                    if self.test_plot:
+                        base_path = "/home/alienware/koyo_ws/Genesis/test_data/cmdlen"
+                    else:
+                        base_path = "/home/alienware/koyo_ws/Genesis/Slosh-Free-Go2-Logs/data/cmdlen"
+                else:
+                    if self.test_plot:
+                        base_path = "/home/psxkf4/Genesis/logs/paper/test_data/cmdlen"
+                    else:
+                        base_path = "/home/psxkf4/Genesis/logs/paper/data/cmdlen"
                 # file_name = self.folder_name + "_cmdlen.txt"
                 file_name = f"{self.folder_name}_run{self.run_num}_cmdlen.txt"
                 cmdlen_path = os.path.join(base_path, file_name)
 
-                base_path = "/home/psxkf4/Genesis/logs/paper/data/stats"
+                if ALIENWARE:
+                    if self.test_plot:
+                        base_path = "/home/alienware/koyo_ws/Genesis/test_data/stats"
+                    else:
+                        base_path = "/home/alienware/koyo_ws/Genesis/Slosh-Free-Go2-Logs/data/stats"
+                else:
+                    if self.test_plot:
+                        base_path = "/home/psxkf4/Genesis/logs/paper/test_data/stats"
+                    else:
+                        base_path = "/home/psxkf4/Genesis/logs/paper/data/stats"
                 # file_name = self.folder_name + "_stats.txt"
                 file_name = f"{self.folder_name}_run{self.run_num}_stats.txt"
                 stats_path = os.path.join(base_path, file_name)
@@ -2181,30 +2383,11 @@ class LeggedSfEnv:
     def compute_rewards(self):
         self.rew_buf[:] = 0.0
         for name, reward_func in self.reward_functions.items():
-            # if name == "action_rate":
-            #     if self.resample_updated:
-            #         self.action_rate_scale *= self.reward_cfg["action_rate_weight_decay_rate"]
-            #     else:
-            #         self.reward_scales[name] = self.action_rate_scale
-                    
+            
+            # print("reward name: ", name)
             rew = reward_func() * self.reward_scales[name]
-
-            if name == "tracking_lin_vel":
-                self.tracking_lin_vel_rew = rew # torch.Size([4096])
-            elif name == "tracking_ang_vel":
-                self.tracking_ang_vel_rew = rew
-            # elif name == "lin_vel_z":
-            #     self.lin_vel_z_rew = rew
-            # elif name == "action_rate":
-            #     self.action_rate_rew = rew
-            # elif name == "similar_to_default":
-            #     self.similar_to_default_rew = rew
-            # elif name == "contact":
-            #     self.contact_rew = rew
-            # elif name == "constrained_slosh_free":
-            #     self.constrained_slosh_free_rew = rew
-
-
+            # print("reward: ", rew)
+    
             self.rew_buf += rew
             self.episode_sums[name] += rew
         if self.reward_cfg["only_positive_rewards"]:
@@ -2280,13 +2463,18 @@ class LeggedSfEnv:
         # For those that are out of bounds, penalize by marking episode_length_buf = max
         # self.episode_length_buf[out_of_bounds] = self.max_episode_length
 
+        # If an environment has been running longer than its maximum episode length 
+        # (i.e. the number of steps exceeds self.max_episode_length), 
+        # then it is marked for reset.
         self.time_out_buf = self.episode_length_buf > self.max_episode_length  # no terminal reward for time-outs
+        # Environments that have timed out are included in self.reset_buf.
         self.reset_buf |= self.time_out_buf
 
     def reset_idx(self, envs_idx):
         if len(envs_idx) == 0:
             return
-        
+        # print("envs_idx in reset_idx function", envs_idx)
+        # breakpoint()
         # # Reset episode step counter for the environments being reset
         # self.episode_step[envs_idx] = 0  # Ensures rewards transition properly
 
@@ -2313,6 +2501,11 @@ class LeggedSfEnv:
             self.base_pos[envs_idx] = self.random_pos[0] + self.base_init_pos
 
         self.base_quat[envs_idx] = self.base_init_quat.reshape(1, -1)
+        # print("self.base_quat[envs_idx]: ", self.base_quat[envs_idx])
+        # self.base_quat[envs_idx]:  tensor([[1., 0., 0., 0.],
+        # [1., 0., 0., 0.],
+        # [1., 0., 0., 0.]], device='cuda:0')
+        # breakpoint()
         self.robot.set_pos(self.base_pos[envs_idx], zero_velocity=False, envs_idx=envs_idx)
         
         if RANDOM_INIT_ROT:
@@ -2375,6 +2568,23 @@ class LeggedSfEnv:
         self.reset_buf[envs_idx] = True
         self.contact_duration_buf[envs_idx] = 0.0
 
+        if TRAJECTORY_RESAMPLE:
+            # print("reset envs due to failure or timeout (used to update xf and traj_t)", envs_idx)
+            max_episode_length_s = random.randint(15, 30)
+            # self.max_episode_length = np.ceil(max_episode_length_s / self.dt)
+            self.max_episode_length[envs_idx] = np.ceil(max_episode_length_s / self.dt)
+
+            self.xf[envs_idx] = self.base_pos[envs_idx].clone()
+            update_dis = random.randint(3, 8)
+            self.xf[envs_idx, 0] += update_dis
+            self.traj_t[envs_idx] = 0.0
+            # print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
+            # print("max_episode_length (T) is updated", self.max_episode_length)
+            # print("xf is updated", self.xf[envs_idx])
+            # print("traj_t is reset to zero")
+            # print("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<")
+            # breakpoint()
+
         # fill extras
         self.extras["episode"] = {}
         for key in self.episode_sums.keys():
@@ -2389,10 +2599,14 @@ class LeggedSfEnv:
             self._resample_predefined_commands()
         elif RANDOM_RESAMPLE_EVAL:
             self._resample_random_commands_eval()
+        elif TRAJECTORY_RESAMPLE:
+            reset_flag = True
+            self._resample_trajectory(envs_idx, reset_flag)
         else:
             self._resample_commands(envs_idx)
         if self.env_cfg['send_timeouts']:
             self.extras['time_outs'] = self.time_out_buf
+        
 
     def generate_random_positions(self):
         """
@@ -2445,6 +2659,9 @@ class LeggedSfEnv:
         #pd controller
         
         actions_scaled = actions * self.env_cfg['action_scale']
+        if HIP_REDUCTION:
+            hip_indices = torch.tensor([0, 3, 6, 9], device=actions.device)
+            actions_scaled[:, hip_indices] *= 0.5
         torques = (
             self.batched_p_gains * (actions_scaled + self.default_dof_pos - self.dof_pos + self.motor_offsets)
             - self.batched_d_gains * self.dof_vel
@@ -2491,6 +2708,22 @@ class LeggedSfEnv:
             elif self.show_vis:
                 x, y, z = self.base_pos[0].cpu().numpy()  # Convert the tensor to NumPy
                 self.cam_0.set_pose(pos=(x, y+4.0, z), lookat=(x, y, z+0.2))
+                self.cam_0.render(
+                    rgb=True,
+                )
+        elif FRONT_CAM:
+            if self._recording and len(self._recorded_frames) < 150:
+                x, y, z = self.base_pos[0].cpu().numpy()  # Convert the tensor to NumPy
+                self.cam_0.set_pose(pos=(x+4.0, y, z), lookat=(x, y, z+0.2))
+                if self.show_vis:
+                    self.cam_0.render(
+                        rgb=True,
+                    )
+                frame, _, _, _ = self.cam_0.render()
+                self._recorded_frames.append(frame)
+            elif self.show_vis:
+                x, y, z = self.base_pos[0].cpu().numpy()  # Convert the tensor to NumPy
+                self.cam_0.set_pose(pos=(x+4.0, y, z), lookat=(x, y, z+0.2))
                 self.cam_0.render(
                     rgb=True,
                 )
@@ -2668,6 +2901,15 @@ class LeggedSfEnv:
         Penalize collisions on selected bodies.
         Returns the per-env penalty value as a 1D tensor of shape (n_envs,).
         """
+        # print("self.penalised_contact_indices: ", self.penalised_contact_indices)
+        # print("self.robot.n_links: ", self.robot.n_links)
+        # # self.penalised_contact_indices:  [0, 5, 6, 7, 8, 9, 10, 11, 12]
+        # # self.robot.n_links:  17
+        # assert torch.max(torch.tensor(self.penalised_contact_indices)) < self.robot.n_links, (
+        #     f"Invalid penalised_contact_indices! Max index: {max(self.penalised_contact_indices)}, "
+        #     f"n_links: {self.robot.n_links}"
+        # )
+
         undesired_forces = torch.norm(self.contact_forces[:, self.penalised_contact_indices, :], dim=-1)
         collisions = (undesired_forces > 0.1).float()  # shape (n_envs, len(...))
         # print("collisions: ", collisions)
@@ -2708,18 +2950,332 @@ class LeggedSfEnv:
         ax_smooth = self.ax_filtered * self.ax_scale
         az_smooth = self.az_filtered * self.az_scale
 
-        # self.smoothed_ax = ax_smooth
+        self.smoothed_ax_mean = torch.mean(ax_smooth)
+        self.smoothed_az_mean = torch.mean(az_smooth)
 
         desired_pitch = torch.atan2(-ax_smooth, -az_smooth)
         desired_pitch_degrees = torch.rad2deg(desired_pitch)
 
         # Compute the squared error between desired and current pitch angles
-        # error = torch.sum(torch.square(desired_pitch_degrees - self.rot_y)) # sum -> too gig
-        error = torch.mean(torch.square(desired_pitch_degrees - self.rot_y))
+        # error = torch.sum(torch.square(desired_pitch_degrees - self.rot_y_deg)) # sum -> too gig
+        error = torch.mean(torch.square(desired_pitch_degrees - self.rot_y_deg))
 
         # return torch.exp(-error / self.reward_cfg["tracking_sigma"]) # zero -> not noticed
-        return - error
+        return error
     
+    def _reward_slosh_free_lateral_acc(self):
+        # 1. Compute acceleration
+        ax = (self.base_lin_vel_x - self.last_base_lin_vel_x) * self.linvel_update_actual_freq
+        az = -9.8 + (self.base_lin_vel_z - self.last_base_lin_vel_z) * self.linvel_update_actual_freq
+
+        # 2. Smooth
+        self.ax_filtered = self.alpha * self.ax_filtered + (1.0 - self.alpha) * ax
+        self.az_filtered = self.alpha * self.az_filtered + (1.0 - self.alpha) * az
+
+        ax_smooth = self.ax_filtered * self.ax_scale
+        az_smooth = self.az_filtered * self.az_scale
+
+        # 3. Desired pitch and pitch error (in radians)
+        desired_pitch = torch.atan2(-ax_smooth, -az_smooth)
+        pitch_error = desired_pitch - self.rot_y.view(-1)
+
+        # 4. Acceleration norm
+        accel_norm = torch.sqrt(ax_smooth**2 + az_smooth**2 + 1e-8)
+
+        # 5. Update max values (no grad)
+        with torch.no_grad():
+            self.max_accel_norm = torch.maximum(self.max_accel_norm, accel_norm.max())
+            # self.max_pitch_error = torch.maximum(self.max_pitch_error, pitch_error_abs.max())
+
+        # 6. Normalize both
+        accel_norm_normalized = accel_norm / (self.max_accel_norm + 1e-4)
+        # pitch_error_normalized = pitch_error_abs / (self.max_pitch_error + 1e-4)
+
+        # 7. Final reward (penalty)
+        reward = torch.abs(torch.sin(pitch_error)) * accel_norm_normalized
+
+        # For logging
+        # self.mean_pitch_error_normalized = torch.mean(pitch_error_normalized)
+        # self.mean_pitch_error_normalized = torch.mean(pitch_error_square)
+        self.mean_accel_norm_normalized = torch.mean(accel_norm_normalized)
+
+        return reward
+
+    
+    def _reward_tracking_acc_x(self):
+        """
+        Encourage the robot to match a desired acceleration in x-direction.
+        """
+        # 1. Compute current base acceleration in x
+        ax = (self.base_lin_vel_x - self.last_base_lin_vel_x) / (1 / self.linvel_update_actual_freq)
+
+        # 2. Optional: smooth it
+        self.ax_filtered = self.alpha * self.ax_filtered + (1.0 - self.alpha) * ax
+        ax_smooth = self.ax_filtered * self.ax_scale
+        self.smoothed_ax_mean = torch.mean(ax_smooth)
+
+        # 3. Get desired acceleration.
+        desired_ax = (self.commands[:, 0] - self.base_lin_vel_x) / (1 / self.linvel_update_actual_freq)
+        self.desired_ax_filtered = self.alpha * self.desired_ax_filtered + (1.0 - self.alpha) * desired_ax
+        self.smoothed_desired_ax_mean = torch.mean(self.desired_ax_filtered)
+
+        # 4. Compute squared error
+        acc_error = torch.square(ax_smooth - self.desired_ax_filtered)
+
+        # 5. Return reward (higher when error is smaller)
+        return torch.exp(-acc_error / self.reward_cfg["tracking_sigma"])
+
+
+    def _reward_slosh_free_lateral_acc_condition_acc(self):
+        # 1. Compute acceleration
+        ax = (self.base_lin_vel_x - self.last_base_lin_vel_x) * self.linvel_update_actual_freq
+        az = -9.8 + (self.base_lin_vel_z - self.last_base_lin_vel_z) * self.linvel_update_actual_freq
+
+        # 2. Smooth
+        self.ax_filtered = self.alpha * self.ax_filtered + (1.0 - self.alpha) * ax
+        self.az_filtered = self.alpha * self.az_filtered + (1.0 - self.alpha) * az
+
+        ax_smooth = self.ax_filtered * self.ax_scale
+        az_smooth = self.az_filtered * self.az_scale
+
+        # 3. Desired pitch and pitch error (in radians)
+        desired_pitch = torch.atan2(-ax_smooth, -az_smooth)
+        pitch_error = desired_pitch - self.rot_y.view(-1)
+        pitch_error_deg = torch.rad2deg(pitch_error)
+
+        # 4. Acceleration norm
+        accel_norm = torch.sqrt(ax_smooth**2 + az_smooth**2 + 1e-8)
+
+        # 5. Update max values (no grad)
+        with torch.no_grad():
+            self.max_accel_norm = torch.maximum(self.max_accel_norm, accel_norm.max())
+            # self.max_pitch_error = torch.maximum(self.max_pitch_error, pitch_error_abs.max())
+
+        # 6. Normalize both
+        accel_norm_normalized = accel_norm / (self.max_accel_norm + 1e-4)
+        # pitch_error_normalized = pitch_error_abs / (self.max_pitch_error + 1e-4)
+
+        rew1 = torch.tensor(0.0, device=self.device)
+        rew2 = (self.reward_cfg["max_pitch_error_weight"] - pitch_error_deg) * accel_norm_normalized
+
+        mask = ax_smooth > self.reward_cfg["ax_threshold"]
+        reward = torch.where(mask, rew1, rew2)
+
+        self.mean_accel_norm_normalized = torch.mean(accel_norm_normalized)
+
+        return reward
+    
+    def _reward_slosh_free_lateral_acc_div_by_tilt(self):
+        # 1. Compute acceleration
+        ax = (self.base_lin_vel_x - self.last_base_lin_vel_x) * self.linvel_update_actual_freq
+        az = -9.8 + (self.base_lin_vel_z - self.last_base_lin_vel_z) * self.linvel_update_actual_freq
+
+        # 2. Smooth
+        self.ax_filtered = self.alpha * self.ax_filtered + (1.0 - self.alpha) * ax
+        self.az_filtered = self.alpha * self.az_filtered + (1.0 - self.alpha) * az
+
+        ax_smooth = self.ax_filtered * self.ax_scale
+        az_smooth = self.az_filtered * self.az_scale
+
+        # 3. Desired pitch and pitch error (in radians)
+        desired_pitch = torch.atan2(-ax_smooth, -az_smooth)
+        pitch_error = desired_pitch - self.rot_y.view(-1)
+        pitch_error_deg = torch.rad2deg(pitch_error)
+
+        # 4. Acceleration norm
+        accel_norm = torch.sqrt(ax_smooth**2 + az_smooth**2 + 1e-8)
+
+        # 5. Update max values (no grad)
+        with torch.no_grad():
+            self.max_accel_norm = torch.maximum(self.max_accel_norm, accel_norm.max())
+            # self.max_pitch_error = torch.maximum(self.max_pitch_error, pitch_error_abs.max())
+
+        # 6. Normalize both
+        accel_norm_normalized = accel_norm / (self.max_accel_norm + 1e-4)
+        # pitch_error_normalized = pitch_error_abs / (self.max_pitch_error + 1e-4)
+        
+        # reward = torch.exp(accel_norm_normalized / (torch.abs(pitch_error_deg)+ 1e-4)) # too big
+        # reward = torch.log1p((accel_norm + 1) / (torch.abs(pitch_error_deg) + 1e-3))
+        reward = torch.log1p(torch.square(ax_smooth + 1) / (torch.abs(pitch_error_deg) + 1e-3))
+
+        # rew1 = torch.tensor(0.0, device=self.device)
+        # rew2 = (accel_norm_normalized / pitch_error_deg)
+
+        # mask = ax_smooth > self.reward_cfg["ax_threshold"]
+        # reward = torch.where(mask, rew1, rew2)
+
+        self.mean_pitch_error_normalized = torch.mean(pitch_error_deg)
+        self.mean_accel_norm_normalized = torch.mean(accel_norm)
+
+        return reward
+
+    # def _reward_slosh_free(self):
+    #     # 1. Compute raw a_x, a_z
+    #     ax = (self.base_lin_vel_x - self.last_base_lin_vel_x) / (1 / self.linvel_update_actual_freq)
+    #     az = -9.8 + (self.base_lin_vel_z - self.last_base_lin_vel_z) / (1 / self.linvel_update_actual_freq)
+
+    #     # 2. Exponential smoothing
+    #     self.ax_filtered = self.alpha * self.ax_filtered + (1.0 - self.alpha) * ax
+    #     self.az_filtered = self.alpha * self.az_filtered + (1.0 - self.alpha) * az
+
+    #     # 3. Apply scaling
+    #     ax_smooth = self.ax_filtered * self.ax_scale
+    #     az_smooth = self.az_filtered * self.az_scale
+
+    #     # 4. Compute desired pitch from filtered acceleration
+    #     desired_pitch = torch.atan2(-ax_smooth, -az_smooth)
+
+    #     # 5. Compute pitch error
+    #     pitch_error = desired_pitch - self.rot_y.view(-1)  # assuming self.rot_y_deg is in degrees
+    #     pitch_error_deg = torch.rad2deg(pitch_error)
+
+    #     # 6. Compute reward: negative squared sine-weighted error
+    #     # reward = torch.abs(torch.sin(pitch_error))
+    #     # reward = torch.abs(pitch_error)
+    #     reward = torch.square(pitch_error_deg)
+    #     # print("shape: ", reward)
+    #     # breakpoint()
+
+    #     return reward # want this to be smaller -> want pitch_error to be small
+    
+    # def _reward_slosh_free(self):
+    #     # 1. Compute raw a_x, a_z
+    #     ax = (self.base_lin_vel_x - self.last_base_lin_vel_x) / (1 / self.linvel_update_actual_freq)
+    #     az = -9.8 + (self.base_lin_vel_z - self.last_base_lin_vel_z) / (1 / self.linvel_update_actual_freq)
+
+    #     # 2. Exponential smoothing
+    #     self.ax_filtered = self.alpha * self.ax_filtered + (1.0 - self.alpha) * ax
+    #     self.az_filtered = self.alpha * self.az_filtered + (1.0 - self.alpha) * az
+
+    #     # 3. Apply scaling
+    #     ax_smooth = self.ax_filtered * self.ax_scale
+    #     az_smooth = self.az_filtered * self.az_scale
+
+    #     # 4. Compute desired pitch from filtered acceleration
+    #     desired_pitch = torch.atan2(-ax_smooth, -az_smooth)  # in radians
+    #     desired_pitch_degrees = torch.rad2deg(desired_pitch)
+
+    #     # 5. Compute pitch error
+    #     pitch_error = desired_pitch_degrees - self.rot_y_deg.view(-1)  # assuming self.rot_y_deg is in degrees
+
+    #     # 6. Compute norm of acceleration in x-z plane
+    #     accel_norm = torch.sqrt(ax_smooth**2 + az_smooth**2 + 1e-8)  # add epsilon to prevent NaN
+
+    #     # 7. Compute reward: negative squared sine-weighted error
+    #     # reward = - (torch.sin(pitch_error) * accel_norm)**2
+    #     reward = torch.abs(torch.sin(pitch_error) * accel_norm)
+
+    #     return reward # want this to be smaller -> want pitch_error to be small
+    
+    
+    # def _reward_slosh_free(self):
+    #     # 1. Compute acceleration
+    #     ax = (self.base_lin_vel_x - self.last_base_lin_vel_x) * self.linvel_update_actual_freq
+    #     az = -9.8 + (self.base_lin_vel_z - self.last_base_lin_vel_z) * self.linvel_update_actual_freq
+
+    #     # 2. Smooth
+    #     self.ax_filtered = self.alpha * self.ax_filtered + (1.0 - self.alpha) * ax
+    #     self.az_filtered = self.alpha * self.az_filtered + (1.0 - self.alpha) * az
+
+    #     ax_smooth = self.ax_filtered * self.ax_scale
+    #     az_smooth = self.az_filtered * self.az_scale
+
+    #     # 3. Desired pitch and pitch error (in radians)
+    #     desired_pitch = torch.atan2(-ax_smooth, -az_smooth)
+    #     pitch_error = desired_pitch - self.rot_y.view(-1)
+    #     pitch_error = torch.rad2deg(pitch_error)
+    #     pitch_error_abs = torch.abs(pitch_error)
+    #     pitch_error_square = pitch_error**2
+
+    #     # 4. Acceleration norm
+    #     accel_norm = torch.sqrt(ax_smooth**2 + az_smooth**2 + 1e-8)
+
+    #     # 5. Update max values (no grad)
+    #     with torch.no_grad():
+    #         self.max_accel_norm = torch.maximum(self.max_accel_norm, accel_norm.max())
+    #         self.max_pitch_error = torch.maximum(self.max_pitch_error, pitch_error_abs.max())
+
+    #     # 6. Normalize both
+    #     accel_norm_normalized = accel_norm / (self.max_accel_norm + 1e-4)
+    #     # pitch_error_normalized = pitch_error_abs / (self.max_pitch_error + 1e-4)
+    #     pitch_error_normalized = 1.0 + (pitch_error_abs / (self.max_pitch_error + 1e-4))
+
+
+    #     # 7. Final reward (penalty)
+    #     reward = pitch_error_square * accel_norm_normalized
+
+    #     # For logging
+    #     # self.mean_pitch_error_normalized = torch.mean(pitch_error_normalized)
+    #     self.mean_pitch_error_normalized = torch.mean(pitch_error_square)
+    #     self.mean_accel_norm_normalized = torch.mean(accel_norm_normalized)
+
+    #     return reward
+
+    # def _reward_slosh_free(self):
+    #     # Acceleration
+    #     ax = (self.base_lin_vel_x - self.last_base_lin_vel_x) * self.linvel_update_actual_freq
+    #     az = -9.8 + (self.base_lin_vel_z - self.last_base_lin_vel_z) * self.linvel_update_actual_freq
+
+    #     self.ax_filtered = self.alpha * self.ax_filtered + (1.0 - self.alpha) * ax
+    #     self.az_filtered = self.alpha * self.az_filtered + (1.0 - self.alpha) * az
+
+    #     ax_smooth = self.ax_filtered * self.ax_scale
+    #     az_smooth = self.az_filtered * self.az_scale
+
+    #     # Pitch error
+    #     desired_pitch = torch.atan2(-ax_smooth, -az_smooth)
+    #     pitch_error = desired_pitch - self.rot_y.view(-1)
+    #     pitch_error = torch.rad2deg(pitch_error)
+    #     pitch_error_abs = torch.abs(pitch_error)
+
+    #     # Acc norm
+    #     accel_norm = torch.sqrt(ax_smooth**2 + az_smooth**2 + 1e-8)
+
+    #     # Normalize acceleration using sigmoid
+    #     accel_norm_normalized = torch.tanh(accel_norm/19.6)
+
+    #     reward = pitch_error_abs * accel_norm_normalized
+
+    #     self.mean_pitch_error_normalized = torch.mean(pitch_error_abs)
+    #     self.mean_accel_norm_normalized = torch.mean(accel_norm_normalized)
+
+    #     return reward
+    
+    # def _reward_tracking_acc_x(self):
+
+
+
+    # def _reward_slosh_free(self):
+    #     # 1. Compute raw a_x, a_z
+    #     ax = (self.base_lin_vel_x - self.last_base_lin_vel_x) / (1 / self.linvel_update_actual_freq)
+    #     az = -9.8 + (self.base_lin_vel_z - self.last_base_lin_vel_z) / (1 / self.linvel_update_actual_freq)
+
+    #     # 2. Exponential smoothing
+    #     self.ax_filtered = self.alpha * self.ax_filtered + (1.0 - self.alpha) * ax
+    #     self.az_filtered = self.alpha * self.az_filtered + (1.0 - self.alpha) * az
+
+    #     # 3. Apply scaling
+    #     ax_smooth = self.ax_filtered * self.ax_scale
+    #     az_smooth = self.az_filtered * self.az_scale
+
+    #     # 4. Compute desired pitch from filtered acceleration
+    #     desired_pitch = torch.atan2(-ax_smooth, -az_smooth)  # in radians
+    #     desired_pitch_degrees = torch.rad2deg(desired_pitch)
+
+    #     # 5. Compute pitch error
+    #     pitch_error = desired_pitch_degrees - self.rot_y_deg.view(-1)  # assuming self.rot_y_deg is in degrees
+
+    #     # 6. Compute norm of acceleration in x-z plane
+    #     accel_norm = torch.sqrt(ax_smooth**2 + az_smooth**2 + 1e-8)  # add epsilon to prevent NaN
+
+    #     # 7. Compute reward: negative squared sine-weighted error
+    #     # reward = - (pitch_error * accel_norm)**2
+    #     reward = torch.abs(pitch_error * accel_norm)
+
+    #     return reward # want this to be smaller -> want pitch_error to be small
+
+
+
     
     def _reward_similar_to_default(self):
         # Penalize joint poses far away from default pose
@@ -2824,7 +3380,7 @@ class LeggedSfEnv:
 
 
     # def _reward_tracking_pitch_ang(self):
-    #     pitch_ang_error = torch.square(self.commands[:, 3] - self.rot_y)
+    #     pitch_ang_error = torch.square(self.commands[:, 3] - self.rot_y_deg)
     #     return torch.exp(-pitch_ang_error / self.reward_cfg["tracking_sigma"])
     
 
@@ -2846,4 +3402,5 @@ class LeggedSfEnv:
             self.pitch_count += 1
             desired_pitch = desired_pitch
             # Compute the squared error between desired and current pitch angles
-            return torch.sum(torch.square(desired_pitch - self.rot_y))
+            return torch.sum(torch.square(desired_pitch - self.rot_y_deg))
+        

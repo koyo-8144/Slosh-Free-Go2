@@ -16,8 +16,10 @@ def get_train_cfg(exp_name, max_iterations):
     train_cfg_dict = {
         "algorithm": {
             "clip_param": 0.2,
+            # "clip_param": 0.25,
             # "clip_param": 0.1,
-            "desired_kl": 0.01,
+            # "desired_kl": 0.01,
+            "desired_kl": 0.005,
             "entropy_coef": 0.01,
             "gamma": 0.99,
             "lam": 0.95,
@@ -126,7 +128,8 @@ def get_cfgs():
         "base_init_pos": [0.0, 0.0, 0.5],
         "base_init_quat": [1.0, 0.0, 0.0, 0.0],
         "episode_length_s": 20.0,
-        "resampling_time_s": 4.0,
+        # "resampling_time_s": 4.0,
+        "resampling_time_s": 0.02,
         "action_scale": 0.25,
         "simulate_action_latency": True,
         'send_timeouts': True,
@@ -194,7 +197,9 @@ def get_cfgs():
         "min_pitch_num": 5.0,
         "action_rate_weight_decay_rate": 0.5,
         "linvel_update_freq": 10.0,
-        "alpha": 0.9,
+        "alpha": 0.7,
+        "ax_threshold": 0.3,
+        "max_pitch_error_weight": 10,
         "reward_scales": {
             # # v2
             # "tracking_lin_vel": 2.0,
@@ -204,19 +209,26 @@ def get_cfgs():
             # v3
             "tracking_lin_vel": 2.0,
             "tracking_ang_vel": 1.0,
+            # "tracking_acc_x": 2.0,
             "lin_vel_z": -2.0,
             "ang_vel_xy": -0.05,
             "base_height": -30.0,
-            # "orientation": -0.1,
+            "orientation": -0.1,
             "collision": -1.0,
-            # "dof_pos_limits": -10.0,
+            "dof_pos_limits": -10.0,
             "torques": -1e-5,
             "dof_acc": -2.5e-7,
             "action_rate": -0.01,
-            # "slosh_free": 0.015,
-            "slosh_free": 0.015,
-            "dof_pos_limits": 0.0,
-            "orientation": -0.0,
+            # "slosh_free": -0.015, # normal slosh-free
+            "slosh_free": -0.015, # normal slosh-free
+            # "slosh_free": -0.8, # noraml slosh-free, no sin, square, deg
+            # "slosh_free": -3.0, # noraml slosh-free, no sin, abs, rad
+            # "slosh_free": -0.3, # acc-based slosh-free, sin, abs
+            # "slosh_free": -1.0, # acc-based slosh-free, no sin, abs
+            # "slosh_free": -2.0, # acc-based slosh-free, no sin square, EMA acc norm
+            # "slosh_free_lateral_acc": -20.0, # abs, sin(rad), normalize acc norm
+            # "slosh_free_lateral_acc_condition_acc": 0.1,
+            # "slosh_free_lateral_acc_div_by_tilt": 0.25
         },
     }
     command_cfg = {
@@ -272,7 +284,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-e", "--exp_name", type=str, default="go2_slosh_free_v3")
     parser.add_argument("-B", "--num_envs", type=int, default=4096)
-    parser.add_argument("--max_iterations", type=int, default=10000)
+    parser.add_argument("--max_iterations", type=int, default=20000)
     parser.add_argument("--resume", action="store_true", help="Resume from the latest checkpoint if this flag is set")
     parser.add_argument("--ckpt", type=int, default=0)
     parser.add_argument("--view", action="store_true", help="If you would like to see how robot is trained")
