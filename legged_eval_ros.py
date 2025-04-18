@@ -17,6 +17,8 @@ import copy
 
 PITCH_COMMAND = 0
 
+SLOSH_FREE = 1
+
 class Go2EvaluationNode(Node):
     def __init__(self):
         super().__init__('go2_evaluation_node')
@@ -52,6 +54,13 @@ class Go2EvaluationNode(Node):
         # log_dir = "/home/psxkf4/Genesis/logs/paper/slosh_free_no_acc_profile_MLP_pitch_obs"
         # log_dir = "/home/psxkf4/Genesis/logs/paper/slosh_free_acc_profile_sigma03_MLP_clip025_dkl0005"
         # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250410_112423"
+        # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250417_014903"
+        # log_dir ="/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250410_112423"
+
+        if SLOSH_FREE:
+            log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250417_210914"
+        else:
+            log_dir = "/home/psxkf4/Genesis/logs/paper/no_slosh_free_MLP"
 
         folder_name = log_dir.split("/")[-1]
 
@@ -88,7 +97,6 @@ class Go2EvaluationNode(Node):
 
         resume_path = os.path.join(log_dir, model_file)
 
-        # resume_path = "/home/psxkf4/Genesis/logs/paper/no_slosh_free_MLP/model_10000.pt"
         # resume_path = "/home/psxkf4/Genesis/logs/paper/slosh_free_acc_profile_sigma03_LSTM/model_10000.pt"
         # resume_path = "/home/psxkf4/Genesis/logs/paper/slosh_free_acc_profile_sigma03_MLP/model_10000.pt"
         # resume_path = "/home/psxkf4/Genesis/logs/paper/slosh_free_no_acc_profile_LSTM/model_10000.pt"
@@ -99,6 +107,15 @@ class Go2EvaluationNode(Node):
         # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250409_203321/model_10000.pt"
         # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250411_012456/model_10000.pt"
         # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250410_112423/model_10000.pt"
+        # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250416_181016/model_1000.pt"
+        # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250417_014903/model_8000.pt"
+        # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250410_112423/model_10000.pt"
+        # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250418_015930/model_6000.pt"
+
+        if SLOSH_FREE:
+            resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250417_210914/model_10000.pt"
+        else:
+            resume_path = "/home/psxkf4/Genesis/logs/paper/no_slosh_free_MLP/model_10000.pt"
 
         runner.load(resume_path)
         # resume_path = os.path.join(log_dir, f"model_{args.ckpt}.pt")

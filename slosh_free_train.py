@@ -18,8 +18,8 @@ def get_train_cfg(exp_name, max_iterations):
             "clip_param": 0.2,
             # "clip_param": 0.25,
             # "clip_param": 0.1,
-            # "desired_kl": 0.01,
-            "desired_kl": 0.005,
+            "desired_kl": 0.01,
+            # "desired_kl": 0.02,
             "entropy_coef": 0.01,
             "gamma": 0.99,
             "lam": 0.95,
@@ -52,7 +52,7 @@ def get_train_cfg(exp_name, max_iterations):
             "resume_path": None,
             "run_name": "",
             "runner_class_name": "runner_class_name",
-            "save_interval": 2000,
+            "save_interval": 1000,
         },
         "runner_class_name": "OnPolicyRunner",
         # "seed": 1,
@@ -128,8 +128,18 @@ def get_cfgs():
         "base_init_pos": [0.0, 0.0, 0.5],
         "base_init_quat": [1.0, 0.0, 0.0, 0.0],
         "episode_length_s": 20.0,
-        # "resampling_time_s": 4.0,
-        "resampling_time_s": 0.02,
+
+        # "resampling_time_s": 4.0, # original, resample every 200 steps
+        "resampling_time_s": 2.0, # resample every 100 steps
+
+        # "resampling_time_s": 0.02, # resample every step
+        # "resampling_time_s": 0.2, # resample every 10 steps
+        "min_T": 10,
+        "max_T": 20,
+        "min_delta_x": 0.0,
+        "max_delta_x": 6.4,
+
+
         "action_scale": 0.25,
         "simulate_action_latency": True,
         'send_timeouts': True,
@@ -168,6 +178,8 @@ def get_cfgs():
         # "num_privileged_obs": 54,
         "num_obs": 45,
         "num_privileged_obs": 48, # num_obs + base_lin_vel
+        # "num_obs": 47,
+        # "num_privileged_obs": 50, # num_obs + base_lin_vel
         "obs_scales": {
             "lin_vel": 2.0,
             "ang_vel": 0.25,
@@ -197,7 +209,7 @@ def get_cfgs():
         "min_pitch_num": 5.0,
         "action_rate_weight_decay_rate": 0.5,
         "linvel_update_freq": 10.0,
-        "alpha": 0.8,
+        "alpha": 0.9,
         "ax_threshold": 0.3,
         "max_pitch_error_weight": 10,
         "reward_scales": {
@@ -219,15 +231,18 @@ def get_cfgs():
             "torques": -1e-5,
             "dof_acc": -2.5e-7,
             "action_rate": -0.01,
+            "slosh_free_world": -0.015,
             # "slosh_free": -0.015, # normal slosh-free
-            "slosh_free": -0.015, # normal slosh-free
+            # "slosh_free": -0.015, # normal slosh-free
             # "slosh_free": -0.8, # noraml slosh-free, no sin, square, deg
             # "slosh_free": -3.0, # noraml slosh-free, no sin, abs, rad
             # "slosh_free": -0.3, # acc-based slosh-free, sin, abs
             # "slosh_free": -1.0, # acc-based slosh-free, no sin, abs
             # "slosh_free": -2.0, # acc-based slosh-free, no sin square, EMA acc norm
             # "slosh_free_lateral_acc": -20.0, # abs, sin(rad), normalize acc norm
-            # "slosh_free_lateral_acc_condition_acc": 0.1,
+            # "slosh_free_lateral_acc_condition_acc": 0.05,
+            # "slosh_free_lateral_acc_condition_acc_noclip": 0.1,
+            # "slosh_free_lateral_acc_condition_acc_noclip": 0.025,
             # "slosh_free_lateral_acc_div_by_tilt": 0.25
         },
     }
@@ -244,7 +259,7 @@ def get_cfgs():
         "lin_vel_x_range_goal": [-2.0, 2.0],
         "achieve_rate": 0.9,
         "increase_rate": 0.1,
-        "acc_sigma": 0.2,    
+        "acc_sigma": 0.3,    
         "sign_flip_rate": 0.0,    
     }
     noise_cfg = {
@@ -284,7 +299,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-e", "--exp_name", type=str, default="go2_slosh_free_v3")
     parser.add_argument("-B", "--num_envs", type=int, default=4096)
-    parser.add_argument("--max_iterations", type=int, default=20000)
+    parser.add_argument("--max_iterations", type=int, default=100000)
     parser.add_argument("--resume", action="store_true", help="Resume from the latest checkpoint if this flag is set")
     parser.add_argument("--ckpt", type=int, default=0)
     parser.add_argument("--view", action="store_true", help="If you would like to see how robot is trained")
