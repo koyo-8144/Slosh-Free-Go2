@@ -18,8 +18,9 @@ def get_train_cfg(exp_name, max_iterations):
             "clip_param": 0.2,
             # "clip_param": 0.25,
             # "clip_param": 0.1,
-            "desired_kl": 0.01,
+            # "desired_kl": 0.01,
             # "desired_kl": 0.02,
+            "desired_kl": 0.005,
             "entropy_coef": 0.01,
             "gamma": 0.99,
             "lam": 0.95,
@@ -52,7 +53,7 @@ def get_train_cfg(exp_name, max_iterations):
             "resume_path": None,
             "run_name": "",
             "runner_class_name": "runner_class_name",
-            "save_interval": 1000,
+            "save_interval": 2000,
         },
         "runner_class_name": "OnPolicyRunner",
         # "seed": 1,
@@ -129,8 +130,8 @@ def get_cfgs():
         "base_init_quat": [1.0, 0.0, 0.0, 0.0],
         "episode_length_s": 20.0,
 
-        # "resampling_time_s": 4.0, # original, resample every 200 steps
-        "resampling_time_s": 2.0, # resample every 100 steps
+        "resampling_time_s": 4.0, # original, resample every 200 steps
+        # "resampling_time_s": 2.0, # resample every 100 steps
 
         # "resampling_time_s": 0.02, # resample every step
         # "resampling_time_s": 0.2, # resample every 10 steps
@@ -178,8 +179,8 @@ def get_cfgs():
         # "num_privileged_obs": 54,
         "num_obs": 45,
         "num_privileged_obs": 48, # num_obs + base_lin_vel
-        # "num_obs": 47,
-        # "num_privileged_obs": 50, # num_obs + base_lin_vel
+        # "num_obs": 46,
+        # "num_privileged_obs": 49, # num_obs + base_lin_vel
         "obs_scales": {
             "lin_vel": 2.0,
             "ang_vel": 0.25,
@@ -220,8 +221,8 @@ def get_cfgs():
             # "contact": 0.05,
             # v3
             "tracking_lin_vel": 2.0,
+            # "tracking_lin_vel_world": 2.0,
             "tracking_ang_vel": 1.0,
-            # "tracking_acc_x": 2.0,
             "lin_vel_z": -2.0,
             "ang_vel_xy": -0.05,
             "base_height": -30.0,
@@ -244,6 +245,19 @@ def get_cfgs():
             # "slosh_free_lateral_acc_condition_acc_noclip": 0.1,
             # "slosh_free_lateral_acc_condition_acc_noclip": 0.025,
             # "slosh_free_lateral_acc_div_by_tilt": 0.25
+            # ### Rapid Locomotion ###
+            "tracking_lin_vel": 1.0,
+            "tracking_ang_vel": 0.5,
+            "lin_vel_z": -2.0,
+            "ang_vel_xy": -0.05,
+            "base_height": -30.0,
+            "orientation": -0.1,
+            "collision": -1.0,
+            "dof_pos_limits": -10.0,
+            "torques": -1e-5,
+            "dof_acc": -2.5e-7,
+            "action_rate": -0.01,
+            "feet_air_time": 1.0
         },
     }
     command_cfg = {
@@ -259,8 +273,8 @@ def get_cfgs():
         "lin_vel_x_range_goal": [-2.0, 2.0],
         "achieve_rate": 0.9,
         "increase_rate": 0.1,
-        "acc_sigma": 0.3,    
-        "sign_flip_rate": 0.0,    
+        "acc_sigma": 0.4,
+        "sign_flip_rate": 0.0,
     }
     noise_cfg = {
         "add_noise": True,
@@ -299,7 +313,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-e", "--exp_name", type=str, default="go2_slosh_free_v3")
     parser.add_argument("-B", "--num_envs", type=int, default=4096)
-    parser.add_argument("--max_iterations", type=int, default=100000)
+    parser.add_argument("--max_iterations", type=int, default=20000)
     parser.add_argument("--resume", action="store_true", help="Resume from the latest checkpoint if this flag is set")
     parser.add_argument("--ckpt", type=int, default=0)
     parser.add_argument("--view", action="store_true", help="If you would like to see how robot is trained")
@@ -344,8 +358,8 @@ def main():
             model_file = max(model_files, key=lambda x: x[1])[0]
         else:
             model_file = f"model_{args.ckpt}.pt"
-        # resume_path = os.path.join(most_recent_path,  model_file)
-        resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free/20250213_184130/model_10000.pt"
+        resume_path = os.path.join(most_recent_path,  model_file)
+        # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free/20250213_184130/model_10000.pt"
 
     os.makedirs(log_dir, exist_ok=True)        
     runner = OnPolicyRunner(env, train_cfg, log_dir, device="cuda:0")

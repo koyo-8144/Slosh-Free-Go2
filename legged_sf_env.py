@@ -30,6 +30,7 @@ PITCH_COMMAND_TRAIN = 0
 DESIRED_PITCH_COMMAND = 0
 
 LATERAL_CAM = 1
+TOP_CAM = 0
 FRONT_CAM = 0
 VIDEO_RECORD = 0
 
@@ -408,9 +409,9 @@ class LeggedSfEnv:
         # self.pitch_count = 0
         # self.resample_updated = False
         # self.action_rate_scale = self.reward_scales["action_rate"]
-        self.linvel_update_freq = self.reward_cfg["linvel_update_freq"]
-        self.linvel_update_actual_freq = (1 / self.dt) / self.linvel_update_freq
-        # print("self.linvel_update_actual_freq: ", self.linvel_update_actual_freq)
+        # self.linvel_update_freq = self.reward_cfg["linvel_update_freq"] # 10 Hz
+        # self.linvel_update_actual_freq = (1 / self.dt) / self.linvel_update_freq
+        # print("self.linvel_update_actual_freq: ", self.linvel_update_actual_freq) # %hz
         # breakpoint()
         # Suppose you keep these as class attributes:
         self.ax_filtered = 0.0
@@ -424,6 +425,8 @@ class LeggedSfEnv:
         self.smoothed_desired_ax_mean = 0.0
         self.last_vx_plane = torch.tensor(0.0, device=self.device)
         self.last_vz_world = torch.tensor(0.0, device=self.device)
+        self.vx_plane = torch.tensor(0.0, device=self.device)
+        self.vz_world = torch.tensor(0.0, device=self.device)
         if ACC_PROFILE_RESAMPLE:
             self.acc_sigma = self.command_cfg["acc_sigma"]
             self.sign_flip_rate = self.command_cfg["sign_flip_rate"]
@@ -919,11 +922,11 @@ class LeggedSfEnv:
             self.backward_0 = True
         
         if RANDOM_RESAMPLE_EVAL:
-            self.run_num = 1
+            self.run_num = 10
             # self.run_num = "TEST"
             self.test_plot = False
 
-            self.duplicate = False
+            self.duplicate = True
             self.record_video = False
 
             if ALIENWARE:
@@ -932,12 +935,9 @@ class LeggedSfEnv:
                     # duplicated_cmd_record_path = f"/home/alienware/koyo_ws/Genesis/Slosh-Free-Go2-Logs/data/cmd_rec/no_slosh_free_MLP_run{self.run_num}_cmd_rec.txt"
             else:
                 if self.duplicate:
-                    duplicated_cmd_record_path = f"/home/psxkf4/Genesis/logs/paper/data/cmd_rec/20250417_210914_run{self.run_num}_cmd_rec.txt"
+                    duplicated_cmd_record_path = f"/home/psxkf4/Genesis/logs/paper/data/cmd_rec/20250423_044137_run{self.run_num}_cmd_rec.txt"
                     # duplicated_cmd_record_path = f"/home/psxkf4/Genesis/logs/paper/data/cmd_rec/no_slosh_free_MLP_run{self.run_num}_cmd_rec.txt"
 
-            if self.record_video:
-                print("START VEDEO RECORDING")
-                self.start_recording()
 
             self.start_stop_cmd = True
             self.forward1_cmd = True
@@ -981,8 +981,16 @@ class LeggedSfEnv:
                     self.backward3_cmd_len = random.randint(50, 100)
                     self.finish_stop_cmd_len = 50
 
-                self.forward_cmd_speeds = [1.0, 0.6, 0.2]
-                self.backward_cmd_speeds = [-1.0, -0.6, -0.2]
+                # self.forward_cmd_speeds = [1.0, 0.6, 0.2]
+                # self.backward_cmd_speeds = [-1.0, -0.6, -0.2]
+                self.forward_cmd_speeds = [1.2, 0.8, 0.4]
+                # self.backward_cmd_speeds = [-1.2, -0.8, -0.4]
+                self.forward_cmd_speeds = [1.4]
+                self.backward_cmd_speeds = [-1.4]
+                # self.forward_cmd_speeds = [1.6, 1.2, 0.8, 0.4]
+                # self.backward_cmd_speeds = [-1.6, -1.2, -0.8, -0.4]
+                # self.forward_cmd_speeds = [1.2, 0.8, 0.4]
+                # self.backward_cmd_speeds = [-1.2, -0.8, -0.4]
                 # self.forward_cmd_speeds = [1.2, 0.8, 0.4]
                 # self.backward_cmd_speeds = [-1.2, -0.8, -0.4]
             else:
@@ -991,11 +999,11 @@ class LeggedSfEnv:
             self.plot_save_len = (self.start_stop_cmd_len + self.forward1_cmd_len + self.forward2_cmd_len + self.forward3_cmd_len 
                                     + self.middle_stop_cmd_len + self.backward1_cmd_len + self.backward2_cmd_len + self.backward3_cmd_len + self.finish_stop_cmd_len)
 
-        if VIDEO_RECORD:
-            self.video_record_count = 0
-            self.video_record_len = 100
-            print("START VEDEO RECORDING")
-            self.start_recording()
+            if self.record_video:
+                self.video_record_count = 0
+                self.video_record_len = self.plot_save_len
+                print("START VEDEO RECORDING")
+                self.start_recording()
 
 
         self.max_accel_norm = torch.tensor(1.0, device=self.device)
@@ -1093,12 +1101,22 @@ class LeggedSfEnv:
         self.commands[envs_idx, 0] = gs_rand_float(*self.command_cfg["lin_vel_x_range"], (len(envs_idx),), self.device)
 
     def _resample_commands(self, envs_idx):
-        # self.commands[envs_idx, 0] = gs_rand_float(*self.command_cfg["lin_vel_x_range"], (len(envs_idx),), self.device)
-        # self.commands[envs_idx, 1] = gs_rand_float(*self.command_cfg["lin_vel_y_range"], (len(envs_idx),), self.device)
-        # self.commands[envs_idx, 2] = gs_rand_float(*self.command_cfg["ang_vel_range"], (len(envs_idx),), self.device)
+        self.commands[envs_idx, 0] = gs_rand_float(*self.command_cfg["lin_vel_x_range"], (len(envs_idx),), self.device)
+        self.commands[envs_idx, 1] = gs_rand_float(*self.command_cfg["lin_vel_y_range"], (len(envs_idx),), self.device)
+        self.commands[envs_idx, 2] = gs_rand_float(*self.command_cfg["ang_vel_range"], (len(envs_idx),), self.device)
         # self.commands[envs_idx, 0] = 0.0
         # self.commands[envs_idx, 1] = 0.0
         # self.commands[envs_idx, 2] = 0.0
+
+        self.env0_command_x = self.commands[0, 0]
+        self.env0_command_y = self.commands[0, 1]
+        self.env0_command_z = self.commands[0, 2]
+        self.env1_command_x = self.commands[1, 0]
+        self.env1_command_y = self.commands[1, 1]
+        self.env1_command_z = self.commands[1, 2]
+        self.env2_command_x = self.commands[2, 0]
+        self.env2_command_y = self.commands[2, 1]
+        self.env2_command_z = self.commands[2, 2]
 
         if PITCH_COMMAND_TRAIN:
             self.commands[envs_idx, 3] = gs_rand_float(*self.command_cfg["pitch_ang_range"], (len(envs_idx),), self.device)
@@ -1134,8 +1152,9 @@ class LeggedSfEnv:
         # self.commands[envs_idx, 1] = 0.0
         # self.commands[envs_idx, 2] = 0.0
 
-        # Possibly call _update_base_lin_vel_x for newly reset envs:
-        dt = 1 / self.linvel_update_actual_freq  # or self.env_cfg["some_dt"] if you store it that way
+        # self.linvel_update_actual_freq = (1 / self.dt) / self.linvel_update_freq # 5
+        # dt = 1 / self.linvel_update_actual_freq # 0.2
+        dt = self.dt * 10
         # Just do one step of random acceleration:
         sampled_ax = torch.randn((len(envs_idx),), device=self.device) * self.acc_sigma
         # This way of sampling can prevent ax_sampled from being zero many times,
@@ -1469,21 +1488,27 @@ class LeggedSfEnv:
                 self.fnish_cmd_stop = False  # End stop phase
             self.finish_stop_cmd_count += 1
         
+            if self.record_video:
+                print("STOP VIDEO RECORDING")
+                base_path = "/home/psxkf4/Genesis/logs/paper/videos"
+                file_name = self.folder_name + ".mp4"
+                full_path = os.path.join(base_path, file_name)
+                self.stop_recording(full_path)
 
         if PLOT_TILT_ERROR_VEL_ACC_HEIGHT_CMDREC:
-            
+
             linvel_x_error = abs(self.commands[0, 0] - self.base_lin_vel_x)
             linvel_y_error = abs(self.commands[0, 1] - self.base_lin_vel_y)
             angvel_z_error = abs(self.commands[0, 2] - self.base_ang_vel[0, 2])
 
 
-            self.append_limited(self.command_linvel_x_list, self.commands[0, 0])
+            self.append_limited(self.command_linvel_x_list, self.commands[0, 0].item())
             self.append_limited(self.current_linvel_x_list, self.base_lin_vel_x.item())
             self.append_limited(self.linvel_x_error_list, linvel_x_error)
-            self.append_limited(self.command_linvel_y_list, self.commands[0, 1])
+            self.append_limited(self.command_linvel_y_list, self.commands[0, 1].item())
             self.append_limited(self.current_linvel_y_list, self.base_lin_vel_y.item())
             self.append_limited(self.linvel_y_error_list, linvel_y_error)
-            self.append_limited(self.command_angvel_z_list, self.commands[0, 2])
+            self.append_limited(self.command_angvel_z_list, self.commands[0, 2].item())
             self.append_limited(self.current_angvel_z_list, self.base_ang_vel[0, 2].item())
             self.append_limited(self.angvel_z_error_list, angvel_z_error)
 
@@ -1660,7 +1685,8 @@ class LeggedSfEnv:
         # return self.lin_vel_x_range_min, self.lin_vel_x_range_max, self.tracking_lin_vel_rew_mean, self.tracking_lin_vel_rew_threshold_one, self.desired_pitch_mean, self.pitch_count, self.action_rate_scale
         if TRAJECTORY_RESAMPLE:
             return self.env0_command_x, self.env0_command_y, self.env0_command_z, self.env0_x0_x, self.env0_x0_y, self.env0_x0_z, self.env0_xf_x, self.env0_xf_y, self.env0_xf_z, self.max_episode_length_s[0], self.env0_pos_x, self.env0_pos_y, self.env0_pos_z, self.env0_acc_x, self.env0_acc_y, self.env0_acc_z, self.env0_jerk_x, self.env0_jerk_y, self.env0_jerk_z
-        elif ACC_PROFILE_RESAMPLE:
+        # elif ACC_PROFILE_RESAMPLE:
+        else:
             return self.mean_pitch_error_normalized, self.mean_accel_norm_normalized, self.smoothed_ax_mean, self.smoothed_az_mean, self.env0_command_x, self.env0_command_y, self.env0_command_z, self.env1_command_x, self.env1_command_y, self.env1_command_z, self.env2_command_x, self.env2_command_y, self.env2_command_z
 
     def step(self, actions):
@@ -1774,12 +1800,30 @@ class LeggedSfEnv:
 
         cos_p = torch.cos(self.rot_y)
         sin_p = torch.sin(self.rot_y)
+        cos_p_flat = cos_p.squeeze(-1)   # shape [4096]
+        sin_p_flat = sin_p.squeeze(-1)   # shape [4096]
 
-        self.vx_plane = self.base_lin_vel_x * cos_p + self.base_lin_vel_z * sin_p
-        self.vz_world = -self.base_lin_vel_x * sin_p + self.base_lin_vel_z * cos_p
+        vx_plane_temp = self.vx_plane.clone()
+        vz_world_temp = self.vz_world.clone()
+        self.last_vx_plane = vx_plane_temp
+        self.last_vz_world = vz_world_temp
 
+        self.vx_plane = self.base_lin_vel_x * cos_p_flat + self.base_lin_vel_z * sin_p_flat
+        self.vz_world = -self.base_lin_vel_x * sin_p_flat + self.base_lin_vel_z * cos_p_flat
+
+        # print("self.base_lin_vel_x: ", self.base_lin_vel_x)
+        # print("self.base_lin_vel_z: ", self.base_lin_vel_z)
+        # print("cos_p: ", cos_p_flat)
+        # print("sin_p: ", sin_p_flat)
         # print("Vx_plane: ", self.vx_plane)
         # print("Vz_world: ", self.vz_world)
+        # print("Last_Vx_plane: ", self.last_vx_plane)
+        # print("Last_vz_world: ", self.last_vz_world)
+        # ax = (self.vx_plane - self.last_vx_plane) / self.dt
+        # az = (self.vz_world - self.last_vz_world) / self.dt
+
+        # print("ax: ", ax)
+        # print("az: ", az)
 
         self.base_ang_vel[:] = transform_by_quat(self.robot.get_ang(), inv_base_quat)
         self.projected_gravity = transform_by_quat(self.global_gravity, inv_base_quat)
@@ -1892,12 +1936,14 @@ class LeggedSfEnv:
         #     print("leg_phase:", self.leg_phase)
         #     raise ValueError("NaNs in leg_phase.")
         # print("shape of self.base_ang_vel: ", self.base_ang_vel.shape)
-        # print("shape of self.xf[:, 0]: ", self.xf[:, 0].shape)
-        # print("shape of self.max_episode_length: ", self.max_episode_length.shape)
+        # # print("shape of self.xf[:, 0]: ", self.xf[:, 0].shape)
+        # # print("shape of self.max_episode_length: ", self.max_episode_length.shape)
+        # print("shape of self.rot_y_deg: ", self.rot_y_deg.shape)
         # breakpoint()
         # compute observations
         self.obs_buf = torch.cat(
             [
+                # self.rot_y_deg, # 1
                 self.base_ang_vel * self.obs_scales["ang_vel"],  # 3
                 self.projected_gravity,  # 3
                 # self.xf[:, 0].unsqueeze(1), # 1
@@ -1916,6 +1962,7 @@ class LeggedSfEnv:
         self.privileged_obs_buf = torch.cat(
             [
                 self.base_lin_vel * self.obs_scales["lin_vel"],  # 3
+                # self.rot_y_deg, # 1
                 self.base_ang_vel * self.obs_scales["ang_vel"],  # 3
                 self.projected_gravity,  # 3
                 # self.xf[:, 0].unsqueeze(1), # 1
@@ -1943,19 +1990,19 @@ class LeggedSfEnv:
 
         self.a_count += 1
         # if self.a_count % (1 / (self.dt)) == 0:
-        if self.a_count % self.linvel_update_freq == 0:
-            # Since self.base_lin_vel_x_low_freq is a reference to self.base_lin_vel[:, 0], 
-            # it implicitly updates whenever self.base_lin_vel[:, 0] is updated.
-            # base_lin_vel_x_temp = self.base_lin_vel_x_low_freq.clone()
-            # base_lin_vel_y_temp = self.base_lin_vel_y_low_freq.clone()
-            # base_lin_vel_z_temp = self.base_lin_vel_z_low_freq.clone()
-            # self.last_base_lin_vel_x = base_lin_vel_x_temp
-            # self.last_base_lin_vel_y = base_lin_vel_y_temp
-            # self.last_base_lin_vel_z = base_lin_vel_z_temp
-            vx_plane_temp = self.vx_plane.clone()
-            vz_world_temp = self.vz_world.clone()
-            self.last_vx_plane = vx_plane_temp
-            self.last_vz_world = vz_world_temp
+        # if self.a_count % self.linvel_update_freq == 0:
+        #     # Since self.base_lin_vel_x_low_freq is a reference to self.base_lin_vel[:, 0], 
+        #     # it implicitly updates whenever self.base_lin_vel[:, 0] is updated.
+        #     # base_lin_vel_x_temp = self.base_lin_vel_x_low_freq.clone()
+        #     # base_lin_vel_y_temp = self.base_lin_vel_y_low_freq.clone()
+        #     # base_lin_vel_z_temp = self.base_lin_vel_z_low_freq.clone()
+        #     # self.last_base_lin_vel_x = base_lin_vel_x_temp
+        #     # self.last_base_lin_vel_y = base_lin_vel_y_temp
+        #     # self.last_base_lin_vel_z = base_lin_vel_z_temp
+        #     vx_plane_temp = self.vx_plane.clone()
+        #     vz_world_temp = self.vz_world.clone()
+        #     self.last_vx_plane = vx_plane_temp
+        #     self.last_vz_world = vz_world_temp
 
         if PLOT_PITCH:
             # 1. Compute raw a_x, a_z
@@ -2074,15 +2121,10 @@ class LeggedSfEnv:
         
         if PLOT_TILT_ERROR_VEL_ACC_HEIGHT_CMDREC:
             # 1. Compute raw a_x, a_z
-            ax = (self.vx_plane - self.last_vx_plane) / (1 / self.linvel_update_actual_freq)
-            az = -9.8 + (self.vz_world - self.last_vz_world) / (1 / self.linvel_update_actual_freq)
-            # ax = (self.base_lin_vel_x - self.last_base_lin_vel_x) / self.dt
-            # az = -9.8 + (self.base_lin_vel_z - self.last_base_lin_vel_z) / self.dt
-    
+            ax = (self.vx_plane - self.last_vx_plane) / self.dt
+            az = -9.8 + (self.vz_world - self.last_vz_world) / self.dt
     
             # print("raw ax: ", ax)
-
-            # print(f"ax = {self.alpha} * {self.ax_filtered} + {1.0 - self.alpha} * {ax}")
 
             # 2. Exponential smoothing
             self.ax_filtered = self.alpha * self.ax_filtered + (1.0 - self.alpha) * ax
@@ -2209,7 +2251,8 @@ class LeggedSfEnv:
                     if self.test_plot:
                         base_path = "/home/psxkf4/Genesis/logs/paper/test_data/tilt_stats"
                     else:
-                        base_path = "/home/psxkf4/Genesis/logs/paper/data/tilt_stats"
+                        # base_path = "/home/psxkf4/Genesis/logs/paper/data/tilt_stats"
+                        base_path = f"/home/psxkf4/Genesis/results/{self.folder_name}/tilt_stats"
                 # file_name = self.folder_name + "_stats.txt"
                 file_name = f"{self.folder_name}_run{self.run_num}_tilt_stats.txt"
                 tilt_stats_path = os.path.join(base_path, file_name)
@@ -2252,7 +2295,8 @@ class LeggedSfEnv:
                     if self.test_plot:
                         base_path = "/home/psxkf4/Genesis/logs/paper/test_data/linvel_x_stats"
                     else:
-                        base_path = "/home/psxkf4/Genesis/logs/paper/data/linvel_x_stats"
+                        # base_path = "/home/psxkf4/Genesis/logs/paper/data/linvel_x_stats"
+                        base_path = f"/home/psxkf4/Genesis/results/{self.folder_name}/linvel_x_stats"
                 # file_name = self.folder_name + "_stats.txt"
                 file_name = f"{self.folder_name}_run{self.run_num}_linvel_x_stats.txt"
                 linvel_x_stats_path = os.path.join(base_path, file_name)
@@ -2295,7 +2339,8 @@ class LeggedSfEnv:
                     if self.test_plot:
                         base_path = "/home/psxkf4/Genesis/logs/paper/test_data/linvel_y_stats"
                     else:
-                        base_path = "/home/psxkf4/Genesis/logs/paper/data/linvel_y_stats"
+                        # base_path = "/home/psxkf4/Genesis/logs/paper/data/linvel_y_stats"
+                        base_path = f"/home/psxkf4/Genesis/results/{self.folder_name}/linvel_y_stats"
                 # file_name = self.folder_name + "_stats.txt"
                 file_name = f"{self.folder_name}_run{self.run_num}_linvel_y_stats.txt"
                 linvel_y_stats_path = os.path.join(base_path, file_name)
@@ -2337,7 +2382,8 @@ class LeggedSfEnv:
                     if self.test_plot:
                         base_path = "/home/psxkf4/Genesis/logs/paper/test_data/angvel_z_stats"
                     else:
-                        base_path = "/home/psxkf4/Genesis/logs/paper/data/angvel_z_stats"
+                        # base_path = "/home/psxkf4/Genesis/logs/paper/data/angvel_z_stats"
+                        base_path = f"/home/psxkf4/Genesis/results/{self.folder_name}/angvel_z_stats"
                 # file_name = self.folder_name + "_stats.txt"
                 file_name = f"{self.folder_name}_run{self.run_num}_angvel_z_stats.txt"
                 angvel_z_stats_path = os.path.join(base_path, file_name)
@@ -2501,26 +2547,29 @@ class LeggedSfEnv:
         # Convert to NumPy before plotting
         command_linvel_x_np = self.to_numpy(self.command_linvel_x_list)
         current_linvel_x_np = self.to_numpy(self.current_linvel_x_list)
+        linvel_x_error_np = self.to_numpy(self.linvel_x_error_list)
         command_linvel_y_np = self.to_numpy(self.command_linvel_y_list)
         current_linvel_y_np = self.to_numpy(self.current_linvel_y_list)
+        linvel_y_error_np = self.to_numpy(self.linvel_x_error_list)
         command_angvel_z_np = self.to_numpy(self.command_angvel_z_list)
         current_angvel_z_np = self.to_numpy(self.current_angvel_z_list)
+        angvel_z_error_np = self.to_numpy(self.linvel_x_error_list)
 
         self.axs6.cla()
         self.axs6.plot(self.time_steps, command_linvel_x_np, label="Command Linear X Velocity", color="b", linestyle='--')
         self.axs6.plot(self.time_steps, current_linvel_x_np, label="Current Linear X Velocity", color="c")
         self.axs6.set_xlabel("Time Steps")
         self.axs6.set_ylabel("Linear X Velocity [m/s]")
-        self.axs6.set_ylim(-14.0, 14.0)
+        self.axs6.set_ylim(-1.5, 1.5)
         self.axs6.set_xticks(tick_positions)
         self.axs6.set_xticklabels([])   
         self.axs6.legend()
 
         self.axs7.cla()
-        self.axs7.plot(self.time_steps, self.linvel_x_error_list, label="Linear X Velocity Error", color="r")
+        self.axs7.plot(self.time_steps, linvel_x_error_np, label="Linear X Velocity Error", color="r")
         self.axs7.set_xlabel("Time Steps")
         self.axs7.set_ylabel("Linear X Velocity Error [m/s]")
-        self.axs7.set_ylim(-2.0, 10.0)
+        self.axs7.set_ylim(-1.0, 2.0)
         self.axs7.set_xticks(tick_positions)
         self.axs7.set_xticklabels([]) 
         self.axs7.legend()
@@ -2530,16 +2579,16 @@ class LeggedSfEnv:
         self.axs8.plot(self.time_steps, current_linvel_y_np, label="Current Linear Y Velocity", color="c")
         self.axs8.set_xlabel("Time Steps")
         self.axs8.set_ylabel("Linear Y Velocity [m/s]")
-        self.axs8.set_ylim(-14.0, 14.0)
+        self.axs6.set_ylim(-1.5, 1.5)
         self.axs8.set_xticks(tick_positions)
         self.axs8.set_xticklabels([])   
         self.axs8.legend()
 
         self.axs9.cla()
-        self.axs9.plot(self.time_steps, self.linvel_y_error_list, label="Linear Y Velocity Error", color="r")
+        self.axs9.plot(self.time_steps, linvel_y_error_np, label="Linear Y Velocity Error", color="r")
         self.axs9.set_xlabel("Time Steps")
         self.axs9.set_ylabel("Linear Y Velocity Error [m/s]")
-        self.axs9.set_ylim(-2.0, 10.0)
+        self.axs9.set_ylim(-1.0, 2.0)
         self.axs9.set_xticks(tick_positions)
         self.axs9.set_xticklabels([]) 
         self.axs9.legend()
@@ -2549,19 +2598,20 @@ class LeggedSfEnv:
         self.axs10.plot(self.time_steps, current_angvel_z_np, label="Current Angular Z Velocity", color="c")
         self.axs10.set_xlabel("Time Steps")
         self.axs10.set_ylabel("Angular Z Velocity [m/s]")
-        self.axs10.set_ylim(-14.0, 14.0)
+        self.axs6.set_ylim(-1.5, 1.5)
         self.axs10.set_xticks(tick_positions)
         self.axs10.set_xticklabels([])   
         self.axs10.legend()
 
         self.axs11.cla()
-        self.axs11.plot(self.time_steps, self.angvel_z_error_list, label="Angular Z Velocity Error", color="r")
+        self.axs11.plot(self.time_steps, angvel_z_error_np, label="Angular Z Velocity Error", color="r")
         self.axs11.set_xlabel("Time Steps")
         self.axs11.set_ylabel("Angular Z Velocity Error [m/s]")
-        self.axs11.set_ylim(-2.0, 10.0)
+        self.axs11.set_ylim(-1.0, 2.0)
         self.axs11.set_xticks(tick_positions)
         self.axs11.set_xticklabels([]) 
         self.axs11.legend()
+
 
         # Compute stats for tilt error
         tilt_error_np = self.to_numpy(self.tilt_error_list)
@@ -2570,7 +2620,7 @@ class LeggedSfEnv:
         tilt_max_error = tilt_error_np.max()
 
         # print(f"Pitch Error - Mean: {tilt_mean_error:.3f}, Std: {tilt_std_error:.3f}, Max: {tilt_max_error:.3f}")
-
+        
         linvel_x_error_np = self.to_numpy(self.linvel_x_error_list)
         linvel_x_mean_error = linvel_x_error_np.mean()
         linvel_x_std_error = linvel_x_error_np.std()
@@ -2605,6 +2655,8 @@ class LeggedSfEnv:
                 f.write(f"Backward 3 Length: {self.backward3_cmd_len}\n")
                 f.write(f"Backward 3 Velocity: {self.backward3_cmd_vel}\n")
                 f.write(f"Finish Stop Length: {self.finish_stop_cmd_len}\n")
+                f.write(f"\n")
+                f.write(f"Total Step Length: {self.plot_save_len}")
             print(f"Command length saved to {cmd_rec_path}")
 
         # Save stats to text file
@@ -2612,36 +2664,44 @@ class LeggedSfEnv:
             with open(tilt_stats_path, "w") as f:
                 f.write(f"Tilt Error Statistics Run {self.run_num}\n")
                 f.write(f"-----------------------\n")
-                f.write(f"Mean: {tilt_mean_error:.6f}\n")
-                f.write(f"Standard Deviation: {tilt_std_error:.6f}\n")
-                f.write(f"Maximum: {tilt_max_error:.6f}\n")
+                f.write(f"Mean (μ_{self.run_num}): {tilt_mean_error:.6f}\n")
+                f.write(f"Standard Deviation (σ_{self.run_num}): {tilt_std_error:.6f}\n")
+                f.write(f"Maximum (M_{self.run_num}): {tilt_max_error:.6f}\n")
+                f.write(f"\n")
+                f.write(f"Total Step Length (n_{self.run_num}): {self.plot_save_len}")
             print(f"Tilt error stats saved to {tilt_stats_path}")
 
         if linvel_x_stats_path:
             with open(linvel_x_stats_path, "w") as f:
                 f.write(f"Linear X Velocity Error Statistics Run {self.run_num}\n")
                 f.write(f"-----------------------\n")
-                f.write(f"Mean: {linvel_x_mean_error:.6f}\n")
-                f.write(f"Standard Deviation: {linvel_x_std_error:.6f}\n")
-                f.write(f"Maximum: {linvel_x_max_error:.6f}\n")
+                f.write(f"Mean (μ_{self.run_num}): {linvel_x_mean_error:.6f}\n")
+                f.write(f"Standard Deviation (σ_{self.run_num}): {linvel_x_std_error:.6f}\n")
+                f.write(f"Maximum (M_{self.run_num}): {linvel_x_max_error:.6f}\n")
+                f.write(f"\n")
+                f.write(f"Total Step Length (n_{self.run_num}): {self.plot_save_len}")
             print(f"Linear x velocity error stats saved to {linvel_x_stats_path}")
         
         if linvel_y_stats_path:
             with open(linvel_y_stats_path, "w") as f:
                 f.write(f"Linear Y Velocity Error Statistics Run {self.run_num}\n")
                 f.write(f"-----------------------\n")
-                f.write(f"Mean: {linvel_y_mean_error:.6f}\n")
-                f.write(f"Standard Deviation: {linvel_y_std_error:.6f}\n")
-                f.write(f"Maximum: {linvel_y_max_error:.6f}\n")
+                f.write(f"Mean (μ_{self.run_num}): {linvel_y_mean_error:.6f}\n")
+                f.write(f"Standard Deviation (σ_{self.run_num}): {linvel_y_std_error:.6f}\n")
+                f.write(f"Maximum (M_{self.run_num}): {linvel_y_max_error:.6f}\n")
+                f.write(f"\n")
+                f.write(f"Total Step Length (n_{self.run_num}): {self.plot_save_len}")
             print(f"Linear y velocity error stats saved to {linvel_y_stats_path}")
         
         if angvel_z_stats_path:
             with open(angvel_z_stats_path, "w") as f:
                 f.write(f"Angular Z Velocity Error Statistics Run {self.run_num}\n")
                 f.write(f"-----------------------\n")
-                f.write(f"Mean: {angvel_z_mean_error:.6f}\n")
-                f.write(f"Standard Deviation: {angvel_z_std_error:.6f}\n")
-                f.write(f"Maximum: {angvel_z_max_error:.6f}\n")
+                f.write(f"Mean (μ_{self.run_num}): {angvel_z_mean_error:.6f}\n")
+                f.write(f"Standard Deviation (σ_{self.run_num}): {angvel_z_std_error:.6f}\n")
+                f.write(f"Maximum (M_{self.run_num}): {angvel_z_max_error:.6f}\n")
+                f.write(f"\n")
+                f.write(f"Total Step Length (n_{self.run_num}): {self.plot_save_len}")
             print(f"Angular z velocity error stats saved to {angvel_z_stats_path}")
 
         if tilt_path and tilt_error_path and linvel_x_check_path and acc_path and height_path and linvel_x_path and linvel_x_error_path and linvel_y_path and linvel_y_error_path and angvel_z_path and angvel_z_error_path:
@@ -2942,7 +3002,8 @@ class LeggedSfEnv:
         elif PREDEFINED_RESAMPLE_EVAL or PREDEFINED_RESAMPLE_TRY_EVAL:
             self._resample_predefined_commands()
         elif RANDOM_RESAMPLE_EVAL:
-            self._resample_random_commands_eval()
+            # self._resample_random_commands_eval()
+            pass
         elif TRAJECTORY_RESAMPLE:
             reset_flag = True
             self._resample_trajectory(envs_idx, reset_flag)
@@ -3052,6 +3113,22 @@ class LeggedSfEnv:
             elif self.show_vis:
                 x, y, z = self.base_pos[0].cpu().numpy()  # Convert the tensor to NumPy
                 self.cam_0.set_pose(pos=(x, y+4.0, z), lookat=(x, y, z+0.2))
+                self.cam_0.render(
+                    rgb=True,
+                )
+        elif TOP_CAM:
+            if self._recording and len(self._recorded_frames) < 150:
+                x, y, z = self.base_pos[0].cpu().numpy()  # Convert the tensor to NumPy
+                self.cam_0.set_pose(pos=(x, y, z+4.0), lookat=(x, y, z+0.2))
+                if self.show_vis:
+                    self.cam_0.render(
+                        rgb=True,
+                    )
+                frame, _, _, _ = self.cam_0.render()
+                self._recorded_frames.append(frame)
+            elif self.show_vis:
+                x, y, z = self.base_pos[0].cpu().numpy()  # Convert the tensor to NumPy
+                self.cam_0.set_pose(pos=(x, y, z+4.0), lookat=(x, y, z+0.2))
                 self.cam_0.render(
                     rgb=True,
                 )
@@ -3218,6 +3295,18 @@ class LeggedSfEnv:
         # Tracking of linear velocity commands (xy axes)
         lin_vel_error = torch.sum(torch.square(self.commands[:, :2] - self.base_lin_vel[:, :2]), dim=1)
         return torch.exp(-lin_vel_error / self.reward_cfg["tracking_sigma"])
+    
+    def _reward_tracking_lin_vel_world(self):
+        # print("self.vx_plane: ", self.vx_plane)
+        print("shape of self.vx_plane: ", self.vx_plane.shape)
+        # print("shape of self.commands[:, 0]: ", self.commands[:, 0].shape)
+        # breakpoint()
+        # Tracking of linear velocity commands (xy axes)
+        # vx_error = torch.square(self.commands[:, 0] - self.vx_plane)
+        # vy_error = torch.square(self.commands[:, 1] - self.base_lin_vel[:, 1])
+        # lin_vel_error = vx_error + vy_error
+        lin_vel_error = torch.sum(torch.square(self.commands[:, :2] - self.base_lin_vel[:, :2]), dim=1)
+        return torch.exp(-lin_vel_error / self.reward_cfg["tracking_sigma"])
 
     def _reward_tracking_ang_vel(self):
         # Tracking of angular velocity commands (yaw)
@@ -3309,8 +3398,13 @@ class LeggedSfEnv:
     
     def _reward_slosh_free_world(self):
         # 1. Compute raw a_x, a_z
-        ax = (self.vx_plane - self.last_vx_plane) / (1 / self.linvel_update_actual_freq)
-        az = -9.8 + (self.vz_world - self.last_vz_world) / (1 / self.linvel_update_actual_freq)
+        # ax = (self.vx_plane - self.last_vx_plane) / (1 / self.linvel_update_actual_freq)
+        # az = -9.8 + (self.vz_world - self.last_vz_world) / (1 / self.linvel_update_actual_freq)
+        ax = (self.vx_plane - self.last_vx_plane) / self.dt
+        az = -9.8 + (self.vz_world - self.last_vz_world) / self.dt
+
+        # print("ax raw: ", ax)
+        # print("az raw: ", az)
 
         # 2. Exponential smoothing
         self.ax_filtered = self.alpha * self.ax_filtered + (1.0 - self.alpha) * ax
@@ -3319,6 +3413,9 @@ class LeggedSfEnv:
         # 3. Use the filtered values
         ax_smooth = self.ax_filtered * self.ax_scale
         az_smooth = self.az_filtered * self.az_scale
+
+        # print("ax filterd: ", ax_smooth)
+        # print("az filterd: ", az_smooth)
 
         self.smoothed_ax_mean = torch.mean(ax_smooth)
         self.smoothed_az_mean = torch.mean(az_smooth)

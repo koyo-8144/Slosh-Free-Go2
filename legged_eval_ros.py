@@ -18,6 +18,9 @@ import copy
 PITCH_COMMAND = 0
 
 SLOSH_FREE = 1
+NO_ACC_SAMPLE = 0
+NO_SLOSH_FREE = 0
+LATEST = 0
 
 class Go2EvaluationNode(Node):
     def __init__(self):
@@ -58,10 +61,23 @@ class Go2EvaluationNode(Node):
         # log_dir ="/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250410_112423"
 
         if SLOSH_FREE:
-            log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250417_210914"
-        else:
-            log_dir = "/home/psxkf4/Genesis/logs/paper/no_slosh_free_MLP"
+            # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250417_210914"
+            # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250421_205405"
+            # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250421_122056"
+            # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250422_131828"
 
+            # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250422_180004"
+            # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250423_044137"
+            log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250423_130100"
+        elif NO_ACC_SAMPLE:
+            log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250423_022456"
+        elif NO_SLOSH_FREE:
+            # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250421_175410/model_10000.pt"
+            resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250423_072540"
+        elif LATEST:
+            log_dir = log_dir
+
+        
         folder_name = log_dir.split("/")[-1]
 
         env_cfg, obs_cfg, noise_cfg, reward_cfg, command_cfg, train_cfg, terrain_cfg = pickle.load(open(f"{log_dir}/cfgs.pkl", "rb"))
@@ -72,6 +88,11 @@ class Go2EvaluationNode(Node):
         # breakpoint()
         env_cfg["robot_mjcf"] = "xml/go2/go2.xml"
 
+        # print("env_cfg: ", env_cfg)
+        # print("obs_cfg: ", obs_cfg)
+        # print("reward_cfg: ", reward_cfg)
+        # print("command_cfg: ", command_cfg)
+        # breakpoint()
 
         self.env = LeggedSfEnv(
             num_envs=1,
@@ -113,9 +134,21 @@ class Go2EvaluationNode(Node):
         # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250418_015930/model_6000.pt"
 
         if SLOSH_FREE:
-            resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250417_210914/model_10000.pt"
-        else:
-            resume_path = "/home/psxkf4/Genesis/logs/paper/no_slosh_free_MLP/model_10000.pt"
+            # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250417_210914/model_10000.pt"
+            # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250421_205405/model_10000.pt"
+            # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250421_122056/model_10000.pt"
+            # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250422_131828/model_10000.pt"
+            
+            # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250422_180004/model_10000.pt"
+            # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250423_044137/model_10000.pt"
+            resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250423_130100/model_10000.pt"
+        elif NO_ACC_SAMPLE:
+            resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250423_022456/model_10000.pt"
+        elif NO_SLOSH_FREE:
+            # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250421_175410/model_10000.pt"
+            resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250423_072540/model_10000.pt"
+        elif LATEST:
+            resume_path = resume_path
 
         runner.load(resume_path)
         # resume_path = os.path.join(log_dir, f"model_{args.ckpt}.pt")
