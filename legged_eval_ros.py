@@ -18,9 +18,9 @@ import copy
 PITCH_COMMAND = 0
 
 SLOSH_FREE = 0
-NO_ACC_SAMPLE = 0
+NO_ACC_SAMPLE = 1
 NO_SLOSH_FREE = 0
-LATEST = 1
+LATEST = 0
 
 class Go2EvaluationNode(Node):
     def __init__(self):
@@ -68,9 +68,18 @@ class Go2EvaluationNode(Node):
 
             # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250422_180004"
             # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250423_044137"
-            log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250423_130100"
+            # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250423_130100"
+        
+            # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250426_201047"
+            # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250427_022634"
+            # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250427_042001"
+            # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250427_143414"
+            log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250427_163200"
+        
         elif NO_ACC_SAMPLE:
-            log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250423_022456"
+            # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250423_022456"
+
+            log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250427_124100"
         elif NO_SLOSH_FREE:
             # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250421_175410/model_10000.pt"
             resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250423_072540"
@@ -118,20 +127,6 @@ class Go2EvaluationNode(Node):
 
         resume_path = os.path.join(log_dir, model_file)
 
-        # resume_path = "/home/psxkf4/Genesis/logs/paper/slosh_free_acc_profile_sigma03_LSTM/model_10000.pt"
-        # resume_path = "/home/psxkf4/Genesis/logs/paper/slosh_free_acc_profile_sigma03_MLP/model_10000.pt"
-        # resume_path = "/home/psxkf4/Genesis/logs/paper/slosh_free_no_acc_profile_LSTM/model_10000.pt"
-        # resume_path = "/home/psxkf4/Genesis/logs/paper/slosh_free_no_acc_profile_MLP/model_8000.pt"
-        # resume_path = "/home/psxkf4/Genesis/logs/paper/slosh_free_no_acc_profile_MLP_pitch_obs/model_6000.pt"
-        # resume_path = "/home/psxkf4/Genesis/logs/paper/slosh_free_acc_profile_sigma03_MLP_clip025_dkl0005/model_12000.pt"
-
-        # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250409_203321/model_10000.pt"
-        # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250411_012456/model_10000.pt"
-        # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250410_112423/model_10000.pt"
-        # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250416_181016/model_1000.pt"
-        # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250417_014903/model_8000.pt"
-        # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250410_112423/model_10000.pt"
-        # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250418_015930/model_6000.pt"
 
         if SLOSH_FREE:
             # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250417_210914/model_10000.pt"
@@ -141,9 +136,18 @@ class Go2EvaluationNode(Node):
             
             # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250422_180004/model_10000.pt"
             # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250423_044137/model_10000.pt"
-            resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250423_130100/model_10000.pt"
+            # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250423_130100/model_10000.pt"
+        
+            # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250426_201047/model_10000.pt"
+            # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250427_022634/model_10000.pt"
+            # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250427_042001/model_10000.pt"
+            # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250427_143414/model_10000.pt"
+            resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250427_163200/model_10000.pt"
+
         elif NO_ACC_SAMPLE:
-            resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250423_022456/model_10000.pt"
+            # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250423_022456/model_10000.pt"
+        
+            resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250427_124100/model_10000.pt"
         elif NO_SLOSH_FREE:
             # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250421_175410/model_10000.pt"
             resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250423_072540/model_10000.pt"

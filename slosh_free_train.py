@@ -181,10 +181,10 @@ def get_cfgs():
         # "num_privileged_obs": 54,
         # "num_obs": 45,
         # "num_privileged_obs": 48, # num_obs + base_lin_vel
-        "num_obs": 47,
-        "num_privileged_obs": 50, # num_obs + base_lin_vel
-        # "num_obs": 48,
-        # "num_privileged_obs": 51, # num_obs + base_lin_vel
+        # "num_obs": 47,
+        # "num_privileged_obs": 50, # num_obs + base_lin_vel
+        "num_obs": 48,
+        "num_privileged_obs": 51, # num_obs + base_lin_vel
         "obs_scales": {
             "lin_vel": 2.0,
             "ang_vel": 0.25,

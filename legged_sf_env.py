@@ -1959,7 +1959,7 @@ class LeggedSfEnv:
             [
                 self.ax.unsqueeze(-1), # 1
                 self.az.unsqueeze(-1), # 1
-                # self.rot_y_deg, # 1
+                self.rot_y_deg, # 1
                 # self.rot_y, # 1
                 # tilt_error, # 1
                 self.base_ang_vel * self.obs_scales["ang_vel"],  # 3
@@ -1982,7 +1982,7 @@ class LeggedSfEnv:
                 self.base_lin_vel * self.obs_scales["lin_vel"],  # 3
                 self.ax.unsqueeze(-1), # 1
                 self.az.unsqueeze(-1), # 1
-                # self.rot_y_deg, # 1
+                self.rot_y_deg, # 1
                 # self.rot_y, # 1
                 # tilt_error, # 1
                 self.base_ang_vel * self.obs_scales["ang_vel"],  # 3
