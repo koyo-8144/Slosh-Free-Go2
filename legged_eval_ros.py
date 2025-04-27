@@ -17,10 +17,10 @@ import copy
 
 PITCH_COMMAND = 0
 
-SLOSH_FREE = 1
+SLOSH_FREE = 0
 NO_ACC_SAMPLE = 0
 NO_SLOSH_FREE = 0
-LATEST = 0
+LATEST = 1
 
 class Go2EvaluationNode(Node):
     def __init__(self):

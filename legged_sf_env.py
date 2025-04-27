@@ -17,14 +17,14 @@ import os
 PLOT_PITCH = 0
 PLOT_ACC = 0
 PLOT_ERROR = 0
-PLOT_TILT_ERROR_VEL_ACC_HEIGHT_CMDREC = 1
+PLOT_TILT_ERROR_VEL_ACC_HEIGHT_CMDREC = 0
 
-ACC_PROFILE_RESAMPLE = 0
+ACC_PROFILE_RESAMPLE = 1
 TRAJECTORY_RESAMPLE = 0
 
 PREDEFINED_RESAMPLE_EVAL = 0
 PREDEFINED_RESAMPLE_TRY_EVAL = 0
-RANDOM_RESAMPLE_EVAL = 1
+RANDOM_RESAMPLE_EVAL = 0
 
 PITCH_COMMAND_TRAIN = 0
 DESIRED_PITCH_COMMAND = 0
@@ -414,8 +414,8 @@ class LeggedSfEnv:
         # print("self.linvel_update_actual_freq: ", self.linvel_update_actual_freq) # %hz
         # breakpoint()
         # Suppose you keep these as class attributes:
-        self.ax_filtered = 0.0
-        self.az_filtered = -9.8  # assuming near gravity at start
+        self.ax_filtered = torch.tensor(0.0, device=self.device)
+        self.az_filtered = torch.tensor(-9.8, device=self.device)  # assuming near gravity at start
         self.az_net_filtered = 0.0
         self.desired_ax_filtered = 0.0
         # alpha controls how much new data matters vs. old data (0 < alpha < 1)
@@ -922,11 +922,11 @@ class LeggedSfEnv:
             self.backward_0 = True
         
         if RANDOM_RESAMPLE_EVAL:
-            self.run_num = 10
-            # self.run_num = "TEST"
+            # self.run_num = 10
+            self.run_num = "TEST"
             self.test_plot = False
 
-            self.duplicate = True
+            self.duplicate = False
             self.record_video = False
 
             if ALIENWARE:
@@ -984,9 +984,9 @@ class LeggedSfEnv:
                 # self.forward_cmd_speeds = [1.0, 0.6, 0.2]
                 # self.backward_cmd_speeds = [-1.0, -0.6, -0.2]
                 self.forward_cmd_speeds = [1.2, 0.8, 0.4]
-                # self.backward_cmd_speeds = [-1.2, -0.8, -0.4]
-                self.forward_cmd_speeds = [1.4]
-                self.backward_cmd_speeds = [-1.4]
+                self.backward_cmd_speeds = [-1.2, -0.8, -0.4]
+                # self.forward_cmd_speeds = [1.4]
+                # self.backward_cmd_speeds = [-1.4]
                 # self.forward_cmd_speeds = [1.6, 1.2, 0.8, 0.4]
                 # self.backward_cmd_speeds = [-1.6, -1.2, -0.8, -0.4]
                 # self.forward_cmd_speeds = [1.2, 0.8, 0.4]
@@ -1819,8 +1819,8 @@ class LeggedSfEnv:
         # print("Vz_world: ", self.vz_world)
         # print("Last_Vx_plane: ", self.last_vx_plane)
         # print("Last_vz_world: ", self.last_vz_world)
-        # ax = (self.vx_plane - self.last_vx_plane) / self.dt
-        # az = (self.vz_world - self.last_vz_world) / self.dt
+        self.ax = (self.vx_plane - self.last_vx_plane) / self.dt
+        self.az = (self.vz_world - self.last_vz_world) / self.dt
 
         # print("ax: ", ax)
         # print("az: ", az)
@@ -1922,6 +1922,18 @@ class LeggedSfEnv:
     def compute_observations(self):
         sin_phase = torch.sin(2 * np.pi * self.leg_phase)  # Shape: (batch_size, 4)
         cos_phase = torch.cos(2 * np.pi * self.leg_phase)  # Shape: (batch_size, 4)
+        
+        # ax = (self.vx_plane - self.last_vx_plane) / self.dt
+        # az = -9.8 + (self.vz_world - self.last_vz_world) / self.dt
+        # self.ax_filtered = self.alpha * self.ax_filtered + (1.0 - self.alpha) * ax
+        # self.az_filtered = self.alpha * self.az_filtered + (1.0 - self.alpha) * az
+        # ax_smooth = self.ax_filtered * self.ax_scale
+        # az_smooth = self.az_filtered * self.az_scale
+        # desired_pitch = torch.atan2(-ax_smooth, -az_smooth)
+        # desired_pitch_degrees = torch.rad2deg(desired_pitch)
+        # desired_pitch_degrees = desired_pitch_degrees.unsqueeze(-1)
+        # # print("desired_pitch_degrees: ", desired_pitch_degrees.shape)
+        # tilt_error = desired_pitch_degrees - self.rot_y_deg
 
         # # Right before building self.obs_buf
         # if torch.isnan(self.base_lin_vel).any() or torch.isnan(self.base_ang_vel).any():
@@ -1936,14 +1948,20 @@ class LeggedSfEnv:
         #     print("leg_phase:", self.leg_phase)
         #     raise ValueError("NaNs in leg_phase.")
         # print("shape of self.base_ang_vel: ", self.base_ang_vel.shape)
-        # # print("shape of self.xf[:, 0]: ", self.xf[:, 0].shape)
-        # # print("shape of self.max_episode_length: ", self.max_episode_length.shape)
         # print("shape of self.rot_y_deg: ", self.rot_y_deg.shape)
+        # print("shape of self.ax: ", self.ax.unsqueeze(-1).shape)
+        # print("shape of self.az: ", self.az.unsqueeze(-1).shape)
+        # print("shape of self.rot_y: ", self.rot_y.shape)
+        # print("shape of tilt_error: ", tilt_error.shape)
         # breakpoint()
         # compute observations
         self.obs_buf = torch.cat(
             [
+                self.ax.unsqueeze(-1), # 1
+                self.az.unsqueeze(-1), # 1
                 # self.rot_y_deg, # 1
+                # self.rot_y, # 1
+                # tilt_error, # 1
                 self.base_ang_vel * self.obs_scales["ang_vel"],  # 3
                 self.projected_gravity,  # 3
                 # self.xf[:, 0].unsqueeze(1), # 1
@@ -1962,7 +1980,11 @@ class LeggedSfEnv:
         self.privileged_obs_buf = torch.cat(
             [
                 self.base_lin_vel * self.obs_scales["lin_vel"],  # 3
+                self.ax.unsqueeze(-1), # 1
+                self.az.unsqueeze(-1), # 1
                 # self.rot_y_deg, # 1
+                # self.rot_y, # 1
+                # tilt_error, # 1
                 self.base_ang_vel * self.obs_scales["ang_vel"],  # 3
                 self.projected_gravity,  # 3
                 # self.xf[:, 0].unsqueeze(1), # 1
@@ -2253,7 +2275,7 @@ class LeggedSfEnv:
                     else:
                         # base_path = "/home/psxkf4/Genesis/logs/paper/data/tilt_stats"
                         base_path = f"/home/psxkf4/Genesis/results/{self.folder_name}/tilt_stats"
-                # file_name = self.folder_name + "_stats.txt"
+                os.makedirs(base_path, exist_ok=True)
                 file_name = f"{self.folder_name}_run{self.run_num}_tilt_stats.txt"
                 tilt_stats_path = os.path.join(base_path, file_name)
 
@@ -2297,7 +2319,7 @@ class LeggedSfEnv:
                     else:
                         # base_path = "/home/psxkf4/Genesis/logs/paper/data/linvel_x_stats"
                         base_path = f"/home/psxkf4/Genesis/results/{self.folder_name}/linvel_x_stats"
-                # file_name = self.folder_name + "_stats.txt"
+                os.makedirs(base_path, exist_ok=True)
                 file_name = f"{self.folder_name}_run{self.run_num}_linvel_x_stats.txt"
                 linvel_x_stats_path = os.path.join(base_path, file_name)
 
@@ -2341,7 +2363,7 @@ class LeggedSfEnv:
                     else:
                         # base_path = "/home/psxkf4/Genesis/logs/paper/data/linvel_y_stats"
                         base_path = f"/home/psxkf4/Genesis/results/{self.folder_name}/linvel_y_stats"
-                # file_name = self.folder_name + "_stats.txt"
+                os.makedirs(base_path, exist_ok=True)
                 file_name = f"{self.folder_name}_run{self.run_num}_linvel_y_stats.txt"
                 linvel_y_stats_path = os.path.join(base_path, file_name)
 
@@ -2384,7 +2406,7 @@ class LeggedSfEnv:
                     else:
                         # base_path = "/home/psxkf4/Genesis/logs/paper/data/angvel_z_stats"
                         base_path = f"/home/psxkf4/Genesis/results/{self.folder_name}/angvel_z_stats"
-                # file_name = self.folder_name + "_stats.txt"
+                os.makedirs(base_path, exist_ok=True)
                 file_name = f"{self.folder_name}_run{self.run_num}_angvel_z_stats.txt"
                 angvel_z_stats_path = os.path.join(base_path, file_name)
 
@@ -3398,8 +3420,6 @@ class LeggedSfEnv:
     
     def _reward_slosh_free_world(self):
         # 1. Compute raw a_x, a_z
-        # ax = (self.vx_plane - self.last_vx_plane) / (1 / self.linvel_update_actual_freq)
-        # az = -9.8 + (self.vz_world - self.last_vz_world) / (1 / self.linvel_update_actual_freq)
         ax = (self.vx_plane - self.last_vx_plane) / self.dt
         az = -9.8 + (self.vz_world - self.last_vz_world) / self.dt
 
@@ -3424,9 +3444,22 @@ class LeggedSfEnv:
 
         desired_pitch = torch.atan2(-ax_smooth, -az_smooth)
         desired_pitch_degrees = torch.rad2deg(desired_pitch)
+        # print("desired v1 shape: ", desired_pitch_degrees.shape)
+        # print("desired v1 value: ", desired_pitch_degrees)
+        desired_pitch_degrees = desired_pitch_degrees.unsqueeze(-1)
+        # print("desired v2 shape: ", desired_pitch_degrees_v2.shape)
+        # print("desired v2 value: ", desired_pitch_degrees_v2)
+
 
         # Compute the squared error between desired and current pitch angles
+        # print("self.rot_y_deg shape: ", self.rot_y_deg.shape)
+        # print("self.rot_y_deg value: ", self.rot_y_deg)
         error = torch.mean(torch.square(desired_pitch_degrees - self.rot_y_deg))
+        # error_v2 = torch.mean(torch.square(desired_pitch_degrees_v2 - self.rot_y_deg))
+        # print("error v1 shape: ", error.shape)
+        # print("error v1 value: ", error)
+        # print("error v2 shape: ", error_v2.shape)
+        # print("error v2 value: ", error_v2)
 
         # Logging for monitoring purposes
         self.mean_pitch_error_normalized = torch.mean(desired_pitch_degrees - self.rot_y_deg)

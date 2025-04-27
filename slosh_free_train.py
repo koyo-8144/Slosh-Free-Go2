@@ -148,8 +148,10 @@ def get_cfgs():
         'control_freq': 50,
         'decimation': 4,
         # random push
-        'push_interval_s': -1,
-        'max_push_vel_xy': 1.0,
+        'push_interval_s': 10.0,
+        'max_push_vel_xy': 0.5,
+        # 'push_interval_s': 10.0,
+        # 'max_push_vel_xy': 0.5,
         # domain randomization
         'randomize_delay': False,
         'delay_range': [0.015, 0.05], #seconds
@@ -177,10 +179,12 @@ def get_cfgs():
         # "num_privileged_obs": 56, # num_obs + base_lin_vel
         # "num_obs": 51,
         # "num_privileged_obs": 54,
-        "num_obs": 45,
-        "num_privileged_obs": 48, # num_obs + base_lin_vel
-        # "num_obs": 46,
-        # "num_privileged_obs": 49, # num_obs + base_lin_vel
+        # "num_obs": 45,
+        # "num_privileged_obs": 48, # num_obs + base_lin_vel
+        "num_obs": 47,
+        "num_privileged_obs": 50, # num_obs + base_lin_vel
+        # "num_obs": 48,
+        # "num_privileged_obs": 51, # num_obs + base_lin_vel
         "obs_scales": {
             "lin_vel": 2.0,
             "ang_vel": 0.25,
@@ -246,18 +250,18 @@ def get_cfgs():
             # "slosh_free_lateral_acc_condition_acc_noclip": 0.025,
             # "slosh_free_lateral_acc_div_by_tilt": 0.25
             # ### Rapid Locomotion ###
-            "tracking_lin_vel": 1.0,
-            "tracking_ang_vel": 0.5,
-            "lin_vel_z": -2.0,
-            "ang_vel_xy": -0.05,
-            "base_height": -30.0,
-            "orientation": -0.1,
-            "collision": -1.0,
-            "dof_pos_limits": -10.0,
-            "torques": -1e-5,
-            "dof_acc": -2.5e-7,
-            "action_rate": -0.01,
-            "feet_air_time": 1.0
+            # "tracking_lin_vel": 1.0,
+            # "tracking_ang_vel": 0.5,
+            # "lin_vel_z": -2.0,
+            # "ang_vel_xy": -0.05,
+            # "base_height": -30.0,
+            # "orientation": -0.1,
+            # "collision": -1.0,
+            # "dof_pos_limits": -10.0,
+            # "torques": -1e-5,
+            # "dof_acc": -2.5e-7,
+            # "action_rate": -0.01,
+            # "feet_air_time": 1.0
         },
     }
     command_cfg = {
@@ -273,7 +277,7 @@ def get_cfgs():
         "lin_vel_x_range_goal": [-2.0, 2.0],
         "achieve_rate": 0.9,
         "increase_rate": 0.1,
-        "acc_sigma": 0.4,
+        "acc_sigma": 0.3,
         "sign_flip_rate": 0.0,
     }
     noise_cfg = {
@@ -313,7 +317,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-e", "--exp_name", type=str, default="go2_slosh_free_v3")
     parser.add_argument("-B", "--num_envs", type=int, default=4096)
-    parser.add_argument("--max_iterations", type=int, default=20000)
+    parser.add_argument("--max_iterations", type=int, default=10000)
     parser.add_argument("--resume", action="store_true", help="Resume from the latest checkpoint if this flag is set")
     parser.add_argument("--ckpt", type=int, default=0)
     parser.add_argument("--view", action="store_true", help="If you would like to see how robot is trained")
