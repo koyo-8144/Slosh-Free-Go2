@@ -150,19 +150,24 @@ def get_cfgs():
         # random push
         'push_interval_s': 10.0,
         'max_push_vel_xy': 0.5,
-        # 'push_interval_s': 10.0,
+        # 'push_interval_s': -1,
         # 'max_push_vel_xy': 0.5,
+
         # domain randomization
         'randomize_delay': False,
         'delay_range': [0.015, 0.05], #seconds
         'randomize_friction': True,
         'friction_range': [0.1, 1.5], #[0.1m 1.5]
+        # 'randomize_friction': True,
+        # 'friction_range': [0.05, 4.0],
         'randomize_base_mass': True,
         'added_mass_range': [-1., 3.],
         'randomize_com_displacement': True,
         'com_displacement_range': [-0.01, 0.01],
         'randomize_motor_strength': False,
         'motor_strength_range': [0.9, 1.1],
+        # 'randomize_motor_strength': True,
+        # 'motor_strength_range': [0.9, 1.1],
         'randomize_motor_offset': False,
         'motor_offset_range': [-0.02, 0.02],
         'randomize_kp_scale': False,
@@ -179,12 +184,12 @@ def get_cfgs():
         # "num_privileged_obs": 56, # num_obs + base_lin_vel
         # "num_obs": 51,
         # "num_privileged_obs": 54,
-        # "num_obs": 45,
-        # "num_privileged_obs": 48, # num_obs + base_lin_vel
+        "num_obs": 45,
+        "num_privileged_obs": 48, # num_obs + base_lin_vel
         # "num_obs": 47,
         # "num_privileged_obs": 50, # num_obs + base_lin_vel
-        "num_obs": 48,
-        "num_privileged_obs": 51, # num_obs + base_lin_vel
+        # "num_obs": 48,
+        # "num_privileged_obs": 51, # num_obs + base_lin_vel
         "obs_scales": {
             "lin_vel": 2.0,
             "ang_vel": 0.25,
@@ -236,7 +241,11 @@ def get_cfgs():
             "torques": -1e-5,
             "dof_acc": -2.5e-7,
             "action_rate": -0.01,
-            "slosh_free_world": -0.015,
+            # "slosh_free_world": -0.015,
+            # "slosh_free_lateral_acc": -0.015,
+            "slosh_free_by_acc": -10.0
+            # "feet_air_time": 1.0,
+            # "contact_no_vel": -10.0,
             # "slosh_free": -0.015, # normal slosh-free
             # "slosh_free": -0.015, # normal slosh-free
             # "slosh_free": -0.8, # noraml slosh-free, no sin, square, deg

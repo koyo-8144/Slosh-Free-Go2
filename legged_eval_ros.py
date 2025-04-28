@@ -17,8 +17,8 @@ import copy
 
 PITCH_COMMAND = 0
 
-SLOSH_FREE = 0
-NO_ACC_SAMPLE = 1
+SLOSH_FREE = 1
+NO_ACC_SAMPLE = 0
 NO_SLOSH_FREE = 0
 LATEST = 0
 
@@ -74,8 +74,12 @@ class Go2EvaluationNode(Node):
             # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250427_022634"
             # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250427_042001"
             # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250427_143414"
-            log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250427_163200"
-        
+            # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250427_163200"
+            # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250427_191142"
+            # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250428_012908"
+            # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250428_191016"
+            log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250428_212958"
+
         elif NO_ACC_SAMPLE:
             # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250423_022456"
 
@@ -142,7 +146,11 @@ class Go2EvaluationNode(Node):
             # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250427_022634/model_10000.pt"
             # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250427_042001/model_10000.pt"
             # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250427_143414/model_10000.pt"
-            resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250427_163200/model_10000.pt"
+            # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250427_163200/model_10000.pt"
+            # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250427_191142/model_10000.pt"
+            # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250428_012908/model_10000.pt"
+            # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250428_191016/model_10000.pt"
+            resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250428_212958/model_10000.pt"
 
         elif NO_ACC_SAMPLE:
             # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250423_022456/model_10000.pt"

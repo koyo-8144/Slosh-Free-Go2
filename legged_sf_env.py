@@ -17,14 +17,15 @@ import os
 PLOT_PITCH = 0
 PLOT_ACC = 0
 PLOT_ERROR = 0
-PLOT_TILT_ERROR_VEL_ACC_HEIGHT_CMDREC = 0
+PLOT_TILT_ERROR_VEL_ACC_HEIGHT_CMDREC = 1
 
-ACC_PROFILE_RESAMPLE = 1
+ACC_PROFILE_RESAMPLE = 0
+MIX_RESAMPLE = 0
 TRAJECTORY_RESAMPLE = 0
 
 PREDEFINED_RESAMPLE_EVAL = 0
 PREDEFINED_RESAMPLE_TRY_EVAL = 0
-RANDOM_RESAMPLE_EVAL = 0
+RANDOM_RESAMPLE_EVAL = 1
 
 PITCH_COMMAND_TRAIN = 0
 DESIRED_PITCH_COMMAND = 0
@@ -427,7 +428,7 @@ class LeggedSfEnv:
         self.last_vz_world = torch.tensor(0.0, device=self.device)
         self.vx_plane = torch.tensor(0.0, device=self.device)
         self.vz_world = torch.tensor(0.0, device=self.device)
-        if ACC_PROFILE_RESAMPLE:
+        if ACC_PROFILE_RESAMPLE or MIX_RESAMPLE:
             self.acc_sigma = self.command_cfg["acc_sigma"]
             self.sign_flip_rate = self.command_cfg["sign_flip_rate"]
             # self.commanded_lin_vel_x_walking = torch.zeros((self.num_envs,), device=self.device, dtype=gs.tc_float)
@@ -436,7 +437,7 @@ class LeggedSfEnv:
             self.forward_count = 0
             self.backward_count = 0
 
-            
+            self.switch_resample = False
 
             # self.plot_save_len = 1000
 
@@ -1873,6 +1874,12 @@ class LeggedSfEnv:
         elif TRAJECTORY_RESAMPLE:
             reset_flag = False
             self._resample_trajectory(envs_idx, reset_flag)
+        elif MIX_RESAMPLE:
+            if self.switch_resample:
+                reset_flag = False
+                self._resample_commands_gaussian_acc(envs_idx, reset_flag)
+            else:
+                self._resample_commands(envs_idx)
         else:
             self._resample_commands(envs_idx)
         self._randomize_rigids(envs_idx)
@@ -1957,9 +1964,9 @@ class LeggedSfEnv:
         # compute observations
         self.obs_buf = torch.cat(
             [
-                self.ax.unsqueeze(-1), # 1
-                self.az.unsqueeze(-1), # 1
-                self.rot_y_deg, # 1
+                # self.ax.unsqueeze(-1), # 1
+                # self.az.unsqueeze(-1), # 1
+                # self.rot_y_deg, # 1
                 # self.rot_y, # 1
                 # tilt_error, # 1
                 self.base_ang_vel * self.obs_scales["ang_vel"],  # 3
@@ -1980,9 +1987,9 @@ class LeggedSfEnv:
         self.privileged_obs_buf = torch.cat(
             [
                 self.base_lin_vel * self.obs_scales["lin_vel"],  # 3
-                self.ax.unsqueeze(-1), # 1
-                self.az.unsqueeze(-1), # 1
-                self.rot_y_deg, # 1
+                # self.ax.unsqueeze(-1), # 1
+                # self.az.unsqueeze(-1), # 1
+                # self.rot_y_deg, # 1
                 # self.rot_y, # 1
                 # tilt_error, # 1
                 self.base_ang_vel * self.obs_scales["ang_vel"],  # 3
@@ -2805,9 +2812,13 @@ class LeggedSfEnv:
             rew = reward_func() * self.reward_scales[name]
             # print("reward: ", rew)
 
-            # if name == "slosh_free_lateral_acc_condition_acc":
-            #     print("slosh free reward: ", rew)
-            #     # breakpoint()
+            if name == "tracking_lin_vel":
+                # print("tracking lin vel reward: ", rew)
+                # if torch.all(rew > self.reward_scales["tracking_lin_vel"] * 0.7):
+                if torch.mean(rew) > (self.reward_scales["tracking_lin_vel"] * 0.7):
+                    self.switch_resample = True
+                
+                # breakpoint()
     
             self.rew_buf += rew
             self.episode_sums[name] += rew
@@ -3029,6 +3040,12 @@ class LeggedSfEnv:
         elif TRAJECTORY_RESAMPLE:
             reset_flag = True
             self._resample_trajectory(envs_idx, reset_flag)
+        elif MIX_RESAMPLE:
+            if self.switch_resample:
+                reset_flag = False
+                self._resample_commands_gaussian_acc(envs_idx, reset_flag)
+            else:
+                self._resample_commands(envs_idx)
         else:
             self._resample_commands(envs_idx)
         if self.env_cfg['send_timeouts']:
@@ -3469,8 +3486,8 @@ class LeggedSfEnv:
     
     def _reward_slosh_free_lateral_acc(self):
         # 1. Compute acceleration
-        ax = (self.base_lin_vel_x - self.last_base_lin_vel_x) * self.linvel_update_actual_freq
-        az = -9.8 + (self.base_lin_vel_z - self.last_base_lin_vel_z) * self.linvel_update_actual_freq
+        ax = (self.vx_plane - self.last_vx_plane) / self.dt
+        az = -9.8 + (self.vz_world - self.last_vz_world) / self.dt
 
         # 2. Smooth
         self.ax_filtered = self.alpha * self.ax_filtered + (1.0 - self.alpha) * ax
@@ -3481,30 +3498,31 @@ class LeggedSfEnv:
 
         # 3. Desired pitch and pitch error (in radians)
         desired_pitch = torch.atan2(-ax_smooth, -az_smooth)
-        pitch_error = desired_pitch - self.rot_y.view(-1)
-
-        # 4. Acceleration norm
-        accel_norm = torch.sqrt(ax_smooth**2 + az_smooth**2 + 1e-8)
-
-        # 5. Update max values (no grad)
-        with torch.no_grad():
-            self.max_accel_norm = torch.maximum(self.max_accel_norm, accel_norm.max())
-            # self.max_pitch_error = torch.maximum(self.max_pitch_error, pitch_error_abs.max())
-
-        # 6. Normalize both
-        accel_norm_normalized = accel_norm / (self.max_accel_norm + 1e-4)
-        # pitch_error_normalized = pitch_error_abs / (self.max_pitch_error + 1e-4)
+        desired_pitch_degrees = torch.rad2deg(desired_pitch)
+        desired_pitch_degrees = desired_pitch_degrees.unsqueeze(-1)
+        pitch_error = desired_pitch_degrees - self.rot_y_deg
 
         # 7. Final reward (penalty)
-        reward = torch.abs(torch.sin(pitch_error)) * accel_norm_normalized
+        reward = torch.mean(torch.square(pitch_error)) * torch.abs(ax)
 
-        # For logging
-        # self.mean_pitch_error_normalized = torch.mean(pitch_error_normalized)
-        # self.mean_pitch_error_normalized = torch.mean(pitch_error_square)
-        self.mean_accel_norm_normalized = torch.mean(accel_norm_normalized)
 
         return reward
 
+    def _reward_slosh_free_by_acc(self):
+        # 1. Compute acceleration
+        ax = (self.vx_plane - self.last_vx_plane) / self.dt
+        az = -9.8 + (self.vz_world - self.last_vz_world) / self.dt
+
+        # 2. Smooth
+        self.ax_filtered = self.alpha * self.ax_filtered + (1.0 - self.alpha) * ax
+        self.az_filtered = self.alpha * self.az_filtered + (1.0 - self.alpha) * az
+
+        ax_smooth = self.ax_filtered * self.ax_scale
+        az_smooth = self.az_filtered * self.az_scale
+
+        reward = torch.abs(ax_smooth)
+
+        return reward
     
     def _reward_tracking_acc_x(self):
         """
@@ -3728,6 +3746,8 @@ class LeggedSfEnv:
 
         return reward
 
+
+
     # def _reward_slosh_free(self):
     #     # 1. Compute raw a_x, a_z
     #     ax = (self.base_lin_vel_x - self.last_base_lin_vel_x) / (1 / self.linvel_update_actual_freq)
@@ -3906,14 +3926,14 @@ class LeggedSfEnv:
     #     return torch.sum(torch.square(self.second_last_actions - 2*self.last_actions + self.actions), dim=1)
 
     
-    # def _reward_contact_no_vel(self):
-    #     # Penalize contact with no velocity
-    #     contact = torch.norm(self.contact_forces[:, self.feet_indices, :3], dim=2) > 1.
-    #     # print(contact)
-    #     contact_feet_vel = self.feet_vel * contact.unsqueeze(-1)
-    #     # print(contact_feet_vel)
-    #     penalize = torch.square(contact_feet_vel[:, :, :3])
-    #     return torch.sum(penalize, dim=(1,2))
+    def _reward_contact_no_vel(self):
+        # Penalize contact with no velocity
+        contact = torch.norm(self.contact_forces[:, self.feet_indices, :3], dim=2) > 1.
+        # print(contact)
+        contact_feet_vel = self.feet_vel * contact.unsqueeze(-1)
+        # print(contact_feet_vel)
+        penalize = torch.square(contact_feet_vel[:, :, :3])
+        return torch.sum(penalize, dim=(1,2))
 
     def _reward_contact(self): # max 1
         res = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
