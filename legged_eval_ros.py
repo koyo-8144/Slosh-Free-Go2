@@ -17,10 +17,10 @@ import copy
 
 PITCH_COMMAND = 0
 
-SLOSH_FREE = 1
+SLOSH_FREE = 0
 NO_ACC_SAMPLE = 0
 NO_SLOSH_FREE = 0
-LATEST = 0
+LATEST = 1
 
 class Go2EvaluationNode(Node):
     def __init__(self):
@@ -28,7 +28,7 @@ class Go2EvaluationNode(Node):
         self.device="cuda:0"
 
         # Declare and retrieve parameters
-        self.declare_parameter('exp_name', 'go2_slosh_free_v3')
+        self.declare_parameter('exp_name', 'go2_slosh_free_v4')
         # self.declare_parameter('exp_name', 'paper')
         self.declare_parameter('ckpt', 10000)
 
@@ -48,6 +48,8 @@ class Go2EvaluationNode(Node):
         # Sort subdirectories by their names (assuming they are timestamped in lexicographical order)
         most_recent_subdir = sorted(subdirs)[-1] if subdirs else None
         log_dir = os.path.join(log_dir, most_recent_subdir)
+        # print("log_dir: ", log_dir)
+        # breakpoint()
 
         # log_dir = "/home/psxkf4/Genesis/logs/paper/no_slosh_free_MLP"
         # log_dir = "/home/psxkf4/Genesis/logs/paper/slosh_free_acc_profile_sigma03_LSTM"
@@ -70,7 +72,7 @@ class Go2EvaluationNode(Node):
             # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250423_044137"
             # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250423_130100"
         
-            # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250426_201047"
+            log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250426_201047"
             # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250427_022634"
             # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250427_042001"
             # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250427_143414"
@@ -78,7 +80,8 @@ class Go2EvaluationNode(Node):
             # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250427_191142"
             # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250428_012908"
             # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250428_191016"
-            log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250428_212958"
+            # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250428_212958"
+            # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250429_221654"
 
         elif NO_ACC_SAMPLE:
             # log_dir = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250423_022456"
@@ -150,7 +153,8 @@ class Go2EvaluationNode(Node):
             # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250427_191142/model_10000.pt"
             # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250428_012908/model_10000.pt"
             # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250428_191016/model_10000.pt"
-            resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250428_212958/model_10000.pt"
+            # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250428_212958/model_10000.pt"
+            resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250429_221654/model_10000.pt"
 
         elif NO_ACC_SAMPLE:
             # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250423_022456/model_10000.pt"
@@ -161,7 +165,12 @@ class Go2EvaluationNode(Node):
             resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250423_072540/model_10000.pt"
         elif LATEST:
             resume_path = resume_path
+            # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250505_165918/model_10000.pt"
+            # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250505_122952/model_4000.pt"
+            # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250505_165918/model_6000.pt"
 
+        # print("resume_path: ", resume_path)
+        # breakpoint()
         runner.load(resume_path)
         # resume_path = os.path.join(log_dir, f"model_{args.ckpt}.pt")
         # runner.load(resume_path)

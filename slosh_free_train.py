@@ -153,7 +153,24 @@ def get_cfgs():
         # 'push_interval_s': -1,
         # 'max_push_vel_xy': 0.5,
 
-        # domain randomization
+        # # domain randomization
+        # 'randomize_delay': False,
+        # 'delay_range': [0.015, 0.05], #seconds
+        # 'randomize_friction': True,
+        # 'friction_range': [0.1, 1.5], #[0.1m 1.5]
+        # 'randomize_base_mass': True,
+        # 'added_mass_range': [-1., 3.],
+        # 'randomize_com_displacement': True,
+        # 'com_displacement_range': [-0.01, 0.01],
+        # 'randomize_motor_strength': False,
+        # 'motor_strength_range': [0.9, 1.1],
+        # 'randomize_motor_offset': False,
+        # 'motor_offset_range': [-0.02, 0.02],
+        # 'randomize_kp_scale': False,
+        # 'kp_scale_range': [0.8, 1.2],
+        # 'randomize_kd_scale': False,
+        # 'kd_scale_range': [0.8, 1.2],
+
         'randomize_delay': False,
         'delay_range': [0.015, 0.05], #seconds
         'randomize_friction': True,
@@ -174,6 +191,8 @@ def get_cfgs():
         'kp_scale_range': [0.8, 1.2],
         'randomize_kd_scale': False,
         'kd_scale_range': [0.8, 1.2],
+
+
         "randomize_rot": False,
         "pitch_range": [-40, 40],  # degrees
         "roll_range": [-50, 50],
@@ -186,6 +205,8 @@ def get_cfgs():
         # "num_privileged_obs": 54,
         "num_obs": 45,
         "num_privileged_obs": 48, # num_obs + base_lin_vel
+        # "num_obs": 46,
+        # "num_privileged_obs": 49, # num_obs + base_lin_vel
         # "num_obs": 47,
         # "num_privileged_obs": 50, # num_obs + base_lin_vel
         # "num_obs": 48,
@@ -242,8 +263,11 @@ def get_cfgs():
             "dof_acc": -2.5e-7,
             "action_rate": -0.01,
             # "slosh_free_world": -0.015,
+            "slosh_free_world": -0.01,
+            # "tracking_pitch_ang": 4.0,
             # "slosh_free_lateral_acc": -0.015,
-            "slosh_free_by_acc": -10.0
+            # "slosh_free_by_acc": -10.0
+            # "slosh_free_first_derivative": -0.0001,
             # "feet_air_time": 1.0,
             # "contact_no_vel": -10.0,
             # "slosh_free": -0.015, # normal slosh-free
@@ -278,7 +302,7 @@ def get_cfgs():
         "lin_vel_x_range": [-1.0, 1.0], # This is list
         "lin_vel_y_range": [-0.5, 0.5],
         "ang_vel_range": [-0.5, 0.5],
-        # "pitch_ang_range": [-30.0, 30.0],
+        "pitch_ang_range": [-45.0, 45.0],
         # "lin_vel_x_range": [-2.0, 2.0],
         # "lin_vel_y_range": [-1.0, 1.0],
         # "ang_vel_range": [-0.5, 0.5],
@@ -286,7 +310,8 @@ def get_cfgs():
         "lin_vel_x_range_goal": [-2.0, 2.0],
         "achieve_rate": 0.9,
         "increase_rate": 0.1,
-        "acc_sigma": 0.3,
+        "acc_mean": 25.0,
+        "acc_sigma": 8.3,
         "sign_flip_rate": 0.0,
     }
     noise_cfg = {
@@ -324,7 +349,7 @@ def get_cfgs():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("-e", "--exp_name", type=str, default="go2_slosh_free_v3")
+    parser.add_argument("-e", "--exp_name", type=str, default="go2_slosh_free_v4")
     parser.add_argument("-B", "--num_envs", type=int, default=4096)
     parser.add_argument("--max_iterations", type=int, default=10000)
     parser.add_argument("--resume", action="store_true", help="Resume from the latest checkpoint if this flag is set")
