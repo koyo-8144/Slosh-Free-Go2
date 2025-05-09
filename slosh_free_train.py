@@ -171,32 +171,30 @@ def get_cfgs():
         # 'randomize_kd_scale': False,
         # 'kd_scale_range': [0.8, 1.2],
 
-        'randomize_delay': False,
-        'delay_range': [0.015, 0.05], #seconds
+        # DR_v2
         'randomize_friction': True,
-        'friction_range': [0.1, 1.5], #[0.1m 1.5]
-        # 'randomize_friction': True,
-        # 'friction_range': [0.05, 4.0],
+        'friction_range': [0.1, 1.5],
         'randomize_base_mass': True,
         'added_mass_range': [-1., 3.],
-        'randomize_com_displacement': True,
-        'com_displacement_range': [-0.01, 0.01],
-        'randomize_motor_strength': False,
+        'randomize_motor_strength': True,
         'motor_strength_range': [0.9, 1.1],
-        # 'randomize_motor_strength': True,
-        # 'motor_strength_range': [0.9, 1.1],
+
+        'randomize_com_displacement': False,
+        'com_displacement_range': [-0.01, 0.01],
         'randomize_motor_offset': False,
         'motor_offset_range': [-0.02, 0.02],
         'randomize_kp_scale': False,
         'kp_scale_range': [0.8, 1.2],
         'randomize_kd_scale': False,
         'kd_scale_range': [0.8, 1.2],
-
-
+        'randomize_delay': False,
+        'delay_range': [0.015, 0.05], #seconds
         "randomize_rot": False,
         "pitch_range": [-40, 40],  # degrees
         "roll_range": [-50, 50],
         "yaw_range": [-180, 180],
+
+        'hip_reduction_scale': 1.5,
     }
     obs_cfg = {
         # "num_obs": 53,
@@ -263,7 +261,7 @@ def get_cfgs():
             "dof_acc": -2.5e-7,
             "action_rate": -0.01,
             # "slosh_free_world": -0.015,
-            "slosh_free_world": -0.01,
+            "slosh_free_world_v2": -0.1,
             # "tracking_pitch_ang": 4.0,
             # "slosh_free_lateral_acc": -0.015,
             # "slosh_free_by_acc": -10.0
@@ -302,6 +300,8 @@ def get_cfgs():
         "lin_vel_x_range": [-1.0, 1.0], # This is list
         "lin_vel_y_range": [-0.5, 0.5],
         "ang_vel_range": [-0.5, 0.5],
+        # "lin_vel_y_range": [-1.0, 1.0],
+        # "ang_vel_range": [-1.0, 1.0],
         "pitch_ang_range": [-45.0, 45.0],
         # "lin_vel_x_range": [-2.0, 2.0],
         # "lin_vel_y_range": [-1.0, 1.0],

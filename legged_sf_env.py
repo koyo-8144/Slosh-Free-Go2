@@ -17,12 +17,17 @@ import os
 PLOT_PITCH = 0
 PLOT_ACC = 0
 PLOT_ERROR = 0
-PLOT_TILT_ERROR_VEL_ACC_HEIGHT_CMDREC = 0
 
-ACC_PROFILE_RESAMPLE = 1
+PLOT_TILT_ERROR_VEL_ACC_HEIGHT_CMDREC = 0
+RANDOM_RESAMPLE_EVAL = 0
+
+ACC_PROFILE_RESAMPLE = 0
+ACC_PROFILE_RESAMPLE_V2 = 0
 POS_ACC = 0
 NEG_ACC = 0
-V_ACC = 1
+V_ACC = 0
+
+HIP_REDUCTION = 0
 
 MIX_RESAMPLE = 0
 TRAJECTORY_RESAMPLE = 0
@@ -30,7 +35,7 @@ TRAJECTORY_RESAMPLE = 0
 PREDEFINED_RESAMPLE_EVAL = 0
 PREDEFINED_RESAMPLE_TRY_EVAL = 0
 
-RANDOM_RESAMPLE_EVAL = 0
+
 RANDOM_RESAMPLE_TRAIN = 0
 
 PITCH_COMMAND_TRAIN = 0
@@ -43,7 +48,6 @@ VIDEO_RECORD = 0
 
 RANDOM_INIT_ROT = 0
 DELAY = 0
-HIP_REDUCTION = 0
 
 ALIENWARE = 0
 
@@ -423,19 +427,23 @@ class LeggedSfEnv:
         # breakpoint()
         # Suppose you keep these as class attributes:
         self.ax_filtered = torch.tensor(0.0, device=self.device)
+        self.ay_filtered = torch.tensor(0.0, device=self.device)
         self.az_filtered = torch.tensor(-9.8, device=self.device)  # assuming near gravity at start
         self.az_net_filtered = 0.0
         self.desired_ax_filtered = 0.0
         # alpha controls how much new data matters vs. old data (0 < alpha < 1)
         self.alpha = self.reward_cfg["alpha"]
         self.smoothed_ax_mean = 0.0
+        self.smoothed_ay_mean = 0.0
         self.smoothed_az_mean = 0.0
         self.smoothed_desired_ax_mean = 0.0
         self.last_vx_plane = torch.tensor(0.0, device=self.device)
+        self.last_vy_plane = torch.tensor(0.0, device=self.device)
         self.last_vz_world = torch.tensor(0.0, device=self.device)
         self.vx_plane = torch.tensor(0.0, device=self.device)
+        self.vy_plane = torch.tensor(0.0, device=self.device)
         self.vz_world = torch.tensor(0.0, device=self.device)
-        if ACC_PROFILE_RESAMPLE or MIX_RESAMPLE:
+        if ACC_PROFILE_RESAMPLE or ACC_PROFILE_RESAMPLE_V2 or MIX_RESAMPLE:
             self.acc_mean = self.command_cfg["acc_mean"]
             self.acc_sigma = self.command_cfg["acc_sigma"]
             self.sign_flip_rate = self.command_cfg["sign_flip_rate"]
@@ -448,9 +456,10 @@ class LeggedSfEnv:
             self.switch_resample = False
 
             self.acc_dir = torch.full((self.num_envs,), 2.0, device=self.device, dtype=gs.tc_float)
-            # self.acc_dir = torch.full((self.num_envs,), -10.0, device=self.device, dtype=gs.tc_float)
+            # self.acc_dir = torch.full((self.num_envs,), 25.0, device=self.device, dtype=gs.tc_float)
 
-            # self.plot_save_len = 1000
+            self.acc_x_dir = torch.full((self.num_envs,), 2.0, device=self.device, dtype=gs.tc_float)
+            self.acc_y_dir = torch.full((self.num_envs,), 2.0, device=self.device, dtype=gs.tc_float)
 
         self.base_ang_vel = torch.zeros((self.num_envs, 3), device=self.device, dtype=gs.tc_float)
         self.projected_gravity = torch.zeros((self.num_envs, 3), device=self.device, dtype=gs.tc_float)
@@ -988,8 +997,8 @@ class LeggedSfEnv:
                 if RANDOM_RESAMPLE_TRAIN:
                     self.forward_cmd_speeds = [1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1]
                     self.backward_cmd_speeds = [-1.0, -0.9, -0.8, -0.7, -0.6, -0.5, -0.4, -0.3, -0.2, -0.1]
-                # self.forward_cmd_speeds = [0.8, 0.4]
-                # self.backward_cmd_speeds = [-0.3]
+                # self.forward_cmd_speeds = [0.5]
+                # self.backward_cmd_speeds = [-0.5]
                 self.forward_cmd_speeds = [1.2, 0.8, 0.4]
                 self.backward_cmd_speeds = [-1.2, -0.8, -0.4]
                 # self.forward_cmd_speeds = [1.4]
@@ -1153,60 +1162,121 @@ class LeggedSfEnv:
         # self.commands[envs_idx, 2] = gs_rand_float(*self.command_cfg["ang_vel_range"], (len(envs_idx),), self.device)
 
     def _resample_commands_gaussian_acc_v2(self, envs_idx, reset_flag):
+        # if envs_idx.numel() != 0:
+        #     print(f"Resample velocity for {envs_idx} at step {self.episode_length_buf}")
+        #     breakpoint()
         old_lin_vel_x_command = self.commands[envs_idx, 0]
+        old_lin_vel_y_command = self.commands[envs_idx, 1]
 
-        # Sample new y and yaw commands
-        self.commands[envs_idx, 1] = gs_rand_float(*self.command_cfg["lin_vel_y_range"], (len(envs_idx),), self.device)
+        # For y and yaw, keep your old logic:
         self.commands[envs_idx, 2] = gs_rand_float(*self.command_cfg["ang_vel_range"], (len(envs_idx),), self.device)
+        # self.commands[envs_idx, 2] = 0.0
 
-        dt = self.dt * 10  # Resampling interval
-        sampled_ax = torch.randn((len(envs_idx),), device=self.device) * self.acc_sigma
-        self.commands[envs_idx, 0] += abs(sampled_ax) * dt  # Always accelerating forward
+        dt = self.dt
+        # sampled_ax = torch.randn((len(envs_idx),), device=self.device) * self.acc_sigma
+        sampled_ax = torch.normal(mean=self.acc_mean, std=self.acc_sigma, size=(len(envs_idx),), device=self.device)
+        sampled_ay = torch.normal(mean=self.acc_mean, std=self.acc_sigma, size=(len(envs_idx),), device=self.device)
+        # sampled_ax /= 2
 
-        if reset_flag:
-            # Reset mode: allow full range
-            self.commands[envs_idx, 0] = gs_rand_float(*self.command_cfg["lin_vel_x_range"], (len(envs_idx),), self.device)
+        if V_ACC:
+            self.commands[envs_idx, 0] += self.acc_x_dir[envs_idx] * dt
+            self.commands[envs_idx, 1] += self.acc_y_dir[envs_idx] * dt
         else:
-            # Walk mode: limit sign-flipping
-            full_min = torch.full_like(old_lin_vel_x_command, self.command_cfg["lin_vel_x_range"][0])
-            full_max = torch.full_like(old_lin_vel_x_command, self.command_cfg["lin_vel_x_range"][1])
-            pos_min = torch.full_like(old_lin_vel_x_command, -self.sign_flip_rate)
-            pos_max = full_max
-            neg_min = full_min
-            neg_max = torch.full_like(old_lin_vel_x_command, self.sign_flip_rate)
+            self.commands[envs_idx, 0] += sampled_ax * dt
+            self.commands[envs_idx, 1] += sampled_ay * dt
+        # self.commands[envs_idx, 0] += 0
+        
+        if reset_flag: # when Go2 is not walking
+            # resample both negative and positive velocity
+            self.commands[envs_idx, 0] = gs_rand_float(*self.command_cfg["lin_vel_x_range"], (len(envs_idx),), self.device)
+            self.commands[envs_idx, 1] = gs_rand_float(*self.command_cfg["lin_vel_y_range"], (len(envs_idx),), self.device)
+        else: # while Go2 is walking
+            # Define the full allowed range as provided in self.command_cfg.
+            full_min_vx = torch.full_like(old_lin_vel_x_command, self.command_cfg["lin_vel_x_range"][0])
+            full_max_vx = torch.full_like(old_lin_vel_x_command, self.command_cfg["lin_vel_x_range"][1])
 
-            min_vx = torch.where(old_lin_vel_x_command > 0, pos_min,
-                    torch.where(old_lin_vel_x_command < 0, neg_min, full_min))
-            max_vx = torch.where(old_lin_vel_x_command > 0, pos_max,
-                    torch.where(old_lin_vel_x_command < 0, neg_max, full_max))
+            # For environments with a positive old velocity, we want to allow only non-negative values.
+            pos_min_vx = torch.full_like(old_lin_vel_x_command, -self.sign_flip_rate)
+            pos_max_vx = full_max_vx  # maximum remains the same.
 
-            # Clamp to directionally bounded range
+            # For environments with a negative old velocity, we want to allow only non-positive values.
+            neg_min_vx = full_min_vx  # minimum remains the same.
+            neg_max_vx = torch.full_like(old_lin_vel_x_command, self.sign_flip_rate)
+
+            # For those environments where the old velocity is exactly zero, allow the full range.
+            # Create element-wise minimum and maximum bounds based on the sign of old_lin_vel_x_command.
+            min_vx = torch.where(old_lin_vel_x_command > 0, pos_min_vx,
+                                torch.where(old_lin_vel_x_command < 0, neg_min_vx, full_min_vx))
+            max_vx = torch.where(old_lin_vel_x_command > 0, pos_max_vx,
+                                torch.where(old_lin_vel_x_command < 0, neg_max_vx, full_max_vx))
+
+
+            # Define the full allowed range as provided in self.command_cfg.
+            full_min_vy = torch.full_like(old_lin_vel_y_command, self.command_cfg["lin_vel_y_range"][0])
+            full_max_vy = torch.full_like(old_lin_vel_y_command, self.command_cfg["lin_vel_y_range"][1])
+
+            # For environments with a positive old velocity, we want to allow only non-negative values.
+            pos_min_vy = torch.full_like(old_lin_vel_y_command, -self.sign_flip_rate)
+            pos_max_vy = full_max_vy  # maximum remains the same.
+
+            # For environments with a negative old velocity, we want to allow only non-positive values.
+            neg_min_vy = full_min_vy  # minimum remains the same.
+            neg_max_vy = torch.full_like(old_lin_vel_y_command, self.sign_flip_rate)
+
+            # For those environments where the old velocity is exactly zero, allow the full range.
+            # Create element-wise minimum and maximum bounds based on the sign of old_lin_vel_x_command.
+            min_vy = torch.where(old_lin_vel_y_command > 0, pos_min_vy,
+                                torch.where(old_lin_vel_y_command < 0, neg_min_vy, full_min_vy))
+            max_vy = torch.where(old_lin_vel_y_command > 0, pos_max_vy,
+                                torch.where(old_lin_vel_y_command < 0, neg_max_vy, full_max_vy))
+
+
+
+            # Finally, clamp the new x-velocity command for each environment element-wise.
             self.commands[envs_idx, 0] = torch.max(torch.min(self.commands[envs_idx, 0], max_vx), min_vx)
+            self.commands[envs_idx, 1] = torch.max(torch.min(self.commands[envs_idx, 1], max_vy), min_vy)
 
-            # === Flip logic ===
-            # 1. Access the raw x-velocity before clamping
-            vx = self.commands[envs_idx, 0]
-            vx_max_scalar = self.command_cfg["lin_vel_x_range"][1]  # e.g., 1.0
-            vx_min_scalar = self.command_cfg["lin_vel_x_range"][0]  # e.g., -1.0
 
-            # 2. Find the **local indices** (relative to envs_idx) where velocity > max
-            flip_mask = vx > vx_max_scalar
-            local_flip_indices = flip_mask.nonzero(as_tuple=False).squeeze(-1)
+            if V_ACC:
+                # Get scalar values from config
+                vx_max_scalar = self.command_cfg["lin_vel_x_range"][1]  # e.g., 1.0
+                vx_min_scalar = self.command_cfg["lin_vel_x_range"][0]  # e.g., -1.0
+                vy_max_scalar = self.command_cfg["lin_vel_y_range"][1]  # e.g., 1.0
+                vy_min_scalar = self.command_cfg["lin_vel_y_range"][0]  # e.g., -1.0
 
-            # 3. Map to global env indices
-            global_flip_indices = envs_idx[local_flip_indices]
+                # Get the clamped velocities (already written to self.commands[envs_idx, 0])
+                vx = self.commands[envs_idx, 0]
+                vy = self.commands[envs_idx, 1]
 
-            # 4. Apply flip directly to those environments
-            if global_flip_indices.numel() > 0:
-                self.commands[global_flip_indices, 0] = vx_min_scalar
-                print(f"Flipped {len(global_flip_indices)} velocities to {vx_min_scalar}")
+                # Flip to negative direction when hitting +vx_max
+                flip_to_neg_vx = (vx >= vx_max_scalar - 1e-5)
+                flip_to_neg_vx_indices = envs_idx[flip_to_neg_vx.nonzero(as_tuple=False).squeeze(-1)]
+                if flip_to_neg_vx_indices.numel() > 0:
+                    # self.acc_dir[flip_to_neg_indices] = -0.2 # -abs(sampled_ax)
+                    self.acc_x_dir[flip_to_neg_vx_indices] = -abs(sampled_ax[flip_to_neg_vx.nonzero(as_tuple=False).squeeze(-1)])
 
-            # 5. Now clamp (optional if you're manually flipping)
-            self.commands[envs_idx, 0] = torch.max(
-                torch.min(self.commands[envs_idx, 0], max_vx),
-                min_vx
-            )
+                # Flip to positive direction when hitting -vx_min
+                flip_to_pos_vx = (vx <= vx_min_scalar + 1e-5)
+                flip_to_pos_vx_indices = envs_idx[flip_to_pos_vx.nonzero(as_tuple=False).squeeze(-1)]
+                if flip_to_pos_vx_indices.numel() > 0:
+                    # self.acc_dir[flip_to_pos_indices] = 0.2 # abs(sampled_ax)
+                    self.acc_x_dir[flip_to_pos_vx_indices] = abs(sampled_ax[flip_to_pos_vx.nonzero(as_tuple=False).squeeze(-1)])
 
+
+                # Flip to negative direction when hitting +vx_max
+                flip_to_neg_vy = (vy >= vy_max_scalar - 1e-5)
+                flip_to_neg_vy_indices = envs_idx[flip_to_neg_vy.nonzero(as_tuple=False).squeeze(-1)]
+                if flip_to_neg_vy_indices.numel() > 0:
+                    # self.acc_dir[flip_to_neg_indices] = -0.2 # -abs(sampled_ax)
+                    self.acc_y_dir[flip_to_neg_vy_indices] = -abs(sampled_ay[flip_to_neg_vy.nonzero(as_tuple=False).squeeze(-1)])
+
+                # Flip to positive direction when hitting -vx_min
+                flip_to_pos_vy = (vy <= vy_min_scalar + 1e-5)
+                flip_to_pos_vy_indices = envs_idx[flip_to_pos_vy.nonzero(as_tuple=False).squeeze(-1)]
+                if flip_to_pos_vy_indices.numel() > 0:
+                    # self.acc_dir[flip_to_pos_indices] = 0.2 # abs(sampled_ax)
+                    self.acc_y_dir[flip_to_pos_vy_indices] = abs(sampled_ay[flip_to_pos_vy.nonzero(as_tuple=False).squeeze(-1)])
+                
 
         # if RANDOM_RESAMPLE_EVAL:
         self.env0_command_x = self.commands[0, 0]
@@ -1218,8 +1288,29 @@ class LeggedSfEnv:
         self.env2_command_x = self.commands[2, 0]
         self.env2_command_y = self.commands[2, 1]
         self.env2_command_z = self.commands[2, 2]
+        
+        # print("command x: ", self.commands[0, 0])
 
+        # ax = (self.vx_plane - self.last_vx_plane) / self.dt
+        # az = -9.8 + (self.vz_world - self.last_vz_world) / self.dt
 
+        # self.ax_filtered = self.alpha * self.ax_filtered + (1.0 - self.alpha) * ax
+        # self.az_filtered = self.alpha * self.az_filtered + (1.0 - self.alpha) * az
+        
+        # ax_smooth = self.ax_filtered * self.ax_scale
+        # az_smooth = self.az_filtered * self.az_scale
+
+        # # desired_pitch = torch.atan2(-ax_smooth, -az_smooth)
+        # desired_pitch = torch.atan2(ax_smooth, -az_smooth)
+        # desired_pitch_degrees = torch.rad2deg(desired_pitch)
+        # desired_pitch_degrees = desired_pitch_degrees.unsqueeze(-1)
+
+        # error = torch.mean(torch.square(desired_pitch_degrees - self.rot_y_deg))
+
+        # print("Desired Tilt: ", desired_pitch_degrees)
+        # print("error: ", abs(desired_pitch_degrees - self.rot_y_deg))
+
+    
     def _resample_commands_gaussian_acc(self, envs_idx, reset_flag):
         # if envs_idx.numel() != 0:
         #     print(f"Resample velocity for {envs_idx} at step {self.episode_length_buf}")
@@ -1236,7 +1327,6 @@ class LeggedSfEnv:
         # dt = 1 / self.linvel_update_actual_freq # 0.2
         # dt = self.dt * 10
         dt = self.dt
-        # Just do one step of random acceleration:
         # sampled_ax = torch.randn((len(envs_idx),), device=self.device) * self.acc_sigma
         sampled_ax = torch.normal(mean=self.acc_mean, std=self.acc_sigma, size=(len(envs_idx),), device=self.device)
         # sampled_ax /= 2
@@ -1278,15 +1368,16 @@ class LeggedSfEnv:
             # Finally, clamp the new x-velocity command for each environment element-wise.
             self.commands[envs_idx, 0] = torch.max(torch.min(self.commands[envs_idx, 0], max_vx), min_vx)
 
-            
-            # Get scalar values from config
-            vx_max_scalar = self.command_cfg["lin_vel_x_range"][1]  # e.g., 1.0
-            vx_min_scalar = self.command_cfg["lin_vel_x_range"][0]  # e.g., -1.0
 
-            # Get the clamped velocities (already written to self.commands[envs_idx, 0])
-            vx = self.commands[envs_idx, 0]
 
             if POS_ACC:
+                # Get scalar values from config
+                vx_max_scalar = self.command_cfg["lin_vel_x_range"][1]  # e.g., 1.0
+                vx_min_scalar = self.command_cfg["lin_vel_x_range"][0]  # e.g., -1.0
+
+                # Get the clamped velocities (already written to self.commands[envs_idx, 0])
+                vx = self.commands[envs_idx, 0]
+
                 # Detect elements where vx was clamped to max (or exceeded max slightly)
                 flip_mask = vx >= vx_max_scalar - 1e-5  # small epsilon to handle float errors
 
@@ -1299,6 +1390,13 @@ class LeggedSfEnv:
                     # self.commands[flip_indices, 0] = 0.0
                     # print(f"Flipped {flip_indices.numel()} velocities to {vx_min_scalar}")
             elif NEG_ACC:
+                # Get scalar values from config
+                vx_max_scalar = self.command_cfg["lin_vel_x_range"][1]  # e.g., 1.0
+                vx_min_scalar = self.command_cfg["lin_vel_x_range"][0]  # e.g., -1.0
+
+                # Get the clamped velocities (already written to self.commands[envs_idx, 0])
+                vx = self.commands[envs_idx, 0]
+
                 # Detect elements where vx was clamped to max (or exceeded max slightly)
                 flip_mask = vx <= vx_min_scalar + 1e-5  # small epsilon to handle float errors
 
@@ -1311,6 +1409,13 @@ class LeggedSfEnv:
                     # self.commands[flip_indices, 0] = 0.0
                     # print(f"Flipped {flip_indices.numel()} velocities to {vx_min_scalar}")
             elif V_ACC:
+                # Get scalar values from config
+                vx_max_scalar = self.command_cfg["lin_vel_x_range"][1]  # e.g., 1.0
+                vx_min_scalar = self.command_cfg["lin_vel_x_range"][0]  # e.g., -1.0
+
+                # Get the clamped velocities (already written to self.commands[envs_idx, 0])
+                vx = self.commands[envs_idx, 0]
+
                 # Flip to negative direction when hitting +vx_max
                 flip_to_neg = (vx >= vx_max_scalar - 1e-5)
                 flip_to_neg_indices = envs_idx[flip_to_neg.nonzero(as_tuple=False).squeeze(-1)]
@@ -2041,6 +2146,7 @@ class LeggedSfEnv:
         # print("Roll [deg]: ", self.rot_x_deg)
         # print("Pitch [deg]: ", self.rot_y_deg)
         # print("Yaw [deg]: ", self.rot_z_deg)
+        self.rot_x = torch.deg2rad(self.rot_x_deg)
         self.rot_y = torch.deg2rad(self.rot_y_deg)
 
         # print("Pitch: ", self.rot_y_deg)
@@ -2056,17 +2162,25 @@ class LeggedSfEnv:
         # print("Vx_body: ", self.base_lin_vel_x)
         # print("Vz_body: ", self.base_lin_vel_z)
 
+        cos_r = torch.cos(self.rot_x)
+        sin_r = torch.sin(self.rot_x)
+        cos_r_flat = cos_r.squeeze(-1)   # shape [4096]
+        sin_r_flat = sin_r.squeeze(-1)   # shape [4096]
+
         cos_p = torch.cos(self.rot_y)
         sin_p = torch.sin(self.rot_y)
         cos_p_flat = cos_p.squeeze(-1)   # shape [4096]
         sin_p_flat = sin_p.squeeze(-1)   # shape [4096]
 
         vx_plane_temp = self.vx_plane.clone()
+        vy_plane_temp = self.vy_plane.clone()
         vz_world_temp = self.vz_world.clone()
         self.last_vx_plane = vx_plane_temp
+        self.last_vy_plane = vy_plane_temp
         self.last_vz_world = vz_world_temp
 
         self.vx_plane = self.base_lin_vel_x * cos_p_flat + self.base_lin_vel_z * sin_p_flat
+        self.vy_plane = self.base_lin_vel_y * cos_r_flat + self.base_lin_vel_z * sin_r_flat
         self.vz_world = -self.base_lin_vel_x * sin_p_flat + self.base_lin_vel_z * cos_p_flat
 
         # print("self.base_lin_vel_x: ", self.base_lin_vel_x)
@@ -2078,6 +2192,7 @@ class LeggedSfEnv:
         # print("Last_Vx_plane: ", self.last_vx_plane)
         # print("Last_vz_world: ", self.last_vz_world)
         self.ax = (self.vx_plane - self.last_vx_plane) / self.dt
+        self.ay = (self.vy_plane - self.last_vy_plane) / self.dt
         self.az = (self.vz_world - self.last_vz_world) / self.dt
 
         # print("ax: ", ax)
@@ -2122,6 +2237,9 @@ class LeggedSfEnv:
         if ACC_PROFILE_RESAMPLE:
             reset_flag = False
             self._resample_commands_gaussian_acc(envs_idx, reset_flag)
+        elif ACC_PROFILE_RESAMPLE_V2:
+            reset_flag = False
+            self._resample_commands_gaussian_acc_v2(envs_idx, reset_flag)
         elif DESIRED_PITCH_COMMAND:
             self._resample_desired_pitch(envs_idx)
         elif PREDEFINED_RESAMPLE_EVAL or PREDEFINED_RESAMPLE_TRY_EVAL:
@@ -3304,6 +3422,9 @@ class LeggedSfEnv:
         if ACC_PROFILE_RESAMPLE:
             reset_flag = True
             self._resample_commands_gaussian_acc(envs_idx, reset_flag)
+        elif ACC_PROFILE_RESAMPLE_V2:
+            reset_flag = True
+            self._resample_commands_gaussian_acc_v2(envs_idx, reset_flag)
         elif DESIRED_PITCH_COMMAND:
             self._resample_desired_pitch(envs_idx)
         elif PREDEFINED_RESAMPLE_EVAL or PREDEFINED_RESAMPLE_TRY_EVAL:
@@ -3381,7 +3502,7 @@ class LeggedSfEnv:
         actions_scaled = actions * self.env_cfg['action_scale']
         if HIP_REDUCTION:
             hip_indices = torch.tensor([0, 3, 6, 9], device=actions.device)
-            actions_scaled[:, hip_indices] *= 0.5
+            actions_scaled[:, hip_indices] *= self.env_cfg["hip_reduction_scale"]
         torques = (
             self.batched_p_gains * (actions_scaled + self.default_dof_pos - self.dof_pos + self.motor_offsets)
             - self.batched_d_gains * self.dof_vel
@@ -3609,7 +3730,7 @@ class LeggedSfEnv:
         # Tracking of linear velocity commands (xy axes)
         lin_vel_error = torch.sum(torch.square(self.commands[:, :2] - self.base_lin_vel[:, :2]), dim=1)
         return torch.exp(-lin_vel_error / self.reward_cfg["tracking_sigma"])
-    
+
     def _reward_tracking_lin_vel_world(self):
         # print("self.vx_plane: ", self.vx_plane)
         print("shape of self.vx_plane: ", self.vx_plane.shape)
@@ -3739,6 +3860,69 @@ class LeggedSfEnv:
 
         return error
     
+    def _reward_slosh_free_world_v2(self):
+        ax = (self.vx_plane - self.last_vx_plane) / self.dt
+        az = -9.8 + (self.vz_world - self.last_vz_world) / self.dt
+
+        self.ax_filtered = self.alpha * self.ax_filtered + (1.0 - self.alpha) * ax
+        self.az_filtered = self.alpha * self.az_filtered + (1.0 - self.alpha) * az
+        
+        ax_smooth = self.ax_filtered * self.ax_scale
+        az_smooth = self.az_filtered * self.az_scale
+
+        accel_norm = torch.sqrt(ax_smooth**2 + az_smooth**2 + 1e-8)
+
+        desired_pitch = torch.atan2(ax_smooth, -az_smooth)
+        desired_pitch_degrees = torch.rad2deg(desired_pitch)
+        desired_pitch_degrees = desired_pitch_degrees.unsqueeze(-1)
+
+        error = torch.square(desired_pitch_degrees - self.rot_y_deg)
+        error = error.squeeze(-1)
+
+        # Logging for monitoring purposes
+        self.smoothed_ax_mean = torch.mean(ax_smooth)
+        self.smoothed_az_mean = torch.mean(az_smooth)
+        self.mean_pitch_error_normalized = torch.mean(desired_pitch_degrees - self.rot_y_deg)
+        self.mean_accel_norm_normalized = torch.mean(accel_norm)
+
+        return error
+    
+    def _reward_slosh_free_world_v3(self):
+        ax = (self.vx_plane - self.last_vx_plane) / self.dt
+        ay = (self.vy_plane - self.last_vy_plane) / self.dt
+        az = -9.8 + (self.vz_world - self.last_vz_world) / self.dt
+
+        self.ax_filtered = self.alpha * self.ax_filtered + (1.0 - self.alpha) * ax
+        self.ay_filtered = self.alpha * self.ay_filtered + (1.0 - self.alpha) * ay
+        self.az_filtered = self.alpha * self.az_filtered + (1.0 - self.alpha) * az
+        
+        ax_smooth = self.ax_filtered * self.ax_scale
+        ay_smooth = self.ay_filtered
+        az_smooth = self.az_filtered * self.az_scale
+
+        desired_pitch = torch.atan2(ax_smooth, -az_smooth)
+        desired_pitch_degrees = torch.rad2deg(desired_pitch)
+        desired_pitch_degrees = desired_pitch_degrees.unsqueeze(-1)
+
+        desired_roll = torch.atan2(ay_smooth, -az_smooth)
+        desired_roll_degrees = torch.rad2deg(desired_roll)
+        desired_roll_degrees = desired_roll_degrees.unsqueeze(-1)
+
+        error_pitch = torch.square(desired_pitch_degrees - self.rot_y_deg)
+        error_pitch = error_pitch.squeeze(-1)
+
+        error_roll = torch.square(desired_roll_degrees - self.rot_x_deg)
+        error_roll = error_roll.squeeze(-1)
+
+        error = error_pitch + error_roll
+
+        # Logging for monitoring purposes
+        self.smoothed_ax_mean = torch.mean(ax_smooth)
+        self.smoothed_az_mean = torch.mean(az_smooth)
+        self.mean_pitch_error_normalized = torch.mean(desired_pitch_degrees - self.rot_y_deg)
+
+        return error
+
     def _reward_slosh_free_first_derivative(self):
         # 1. Compute raw accelerations
         ax = (self.vx_plane - self.last_vx_plane) / self.dt

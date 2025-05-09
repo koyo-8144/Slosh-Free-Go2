@@ -168,6 +168,7 @@ class Go2EvaluationNode(Node):
             # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250505_165918/model_10000.pt"
             # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250505_122952/model_4000.pt"
             # resume_path = "/home/psxkf4/Genesis/logs/go2_slosh_free_v3/20250505_165918/model_6000.pt"
+            print("resume_path: ", resume_path)
 
         # print("resume_path: ", resume_path)
         # breakpoint()
