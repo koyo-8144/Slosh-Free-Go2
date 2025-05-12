@@ -4,7 +4,8 @@ import pickle
 import shutil
 
 from legged_sf_env import LeggedSfEnv
-from rsl_rl.runners import OnPolicyRunner
+# from rsl_rl.runners import OnPolicyRunner
+from rsl_rl_ts.runners import OnPolicyRunner
 
 import genesis as gs
 from datetime import datetime
@@ -38,6 +39,13 @@ def get_train_cfg(exp_name, max_iterations):
             "actor_hidden_dims": [512, 256, 128],
             "critic_hidden_dims": [512, 256, 128],
             "init_noise_std": 1.0,
+
+            # Student
+            "adaptation_module_branch_hidden_dims": [[256, 32]],
+            # Teacher
+            "env_factor_encoder_branch_input_dims": [37], #privileged information
+            "env_factor_encoder_branch_latent_dims": [8], #output of encoder and latent
+            "env_factor_encoder_branch_hidden_dims": [[256, 128]]
         },
         "runner": {
             "algorithm_class_name": "PPO",
@@ -194,21 +202,26 @@ def get_cfgs():
         "roll_range": [-50, 50],
         "yaw_range": [-180, 180],
 
-        'hip_reduction_scale': 1.5,
+        'hip_reduction_scale': 0.75,
     }
     obs_cfg = {
         # "num_obs": 53,
         # "num_privileged_obs": 56, # num_obs + base_lin_vel
         # "num_obs": 51,
         # "num_privileged_obs": 54,
-        "num_obs": 45,
-        "num_privileged_obs": 48, # num_obs + base_lin_vel
+        # "num_obs": 45,
+        # "num_privileged_obs": 48, # num_obs + base_lin_vel
         # "num_obs": 46,
         # "num_privileged_obs": 49, # num_obs + base_lin_vel
         # "num_obs": 47,
         # "num_privileged_obs": 50, # num_obs + base_lin_vel
         # "num_obs": 48,
         # "num_privileged_obs": 51, # num_obs + base_lin_vel
+        "num_obs": 45,
+        "num_privileged_obs": 48, # num_obs + base_lin_vel
+        "num_obs_history": 15*45,
+        "num_domain_randomization": 37,
+
         "obs_scales": {
             "lin_vel": 2.0,
             "ang_vel": 0.25,
@@ -219,6 +232,7 @@ def get_cfgs():
             "pitch_ang": 1.0
         },
         "clip_observations":100,
+        "history_lengh": 15,
     }
 
     reward_cfg = {
@@ -262,6 +276,10 @@ def get_cfgs():
             "action_rate": -0.01,
             # "slosh_free_world": -0.015,
             "slosh_free_world_v2": -0.1,
+            # "slosh_free_world_v3": -0.1,
+            # "slosh_free_world_xz": -0.075,
+            # "slosh_free_world_yz": -0.025,
+            # "hip_pos": -0.1,
             # "tracking_pitch_ang": 4.0,
             # "slosh_free_lateral_acc": -0.015,
             # "slosh_free_by_acc": -10.0
@@ -297,10 +315,10 @@ def get_cfgs():
     }
     command_cfg = {
         "num_commands": 3,
-        "lin_vel_x_range": [-1.0, 1.0], # This is list
+        "lin_vel_x_range": [-1.0, 1.0],
         "lin_vel_y_range": [-0.5, 0.5],
-        "ang_vel_range": [-0.5, 0.5],
         # "lin_vel_y_range": [-1.0, 1.0],
+        "ang_vel_z_range": [-0.5, 0.5],
         # "ang_vel_range": [-1.0, 1.0],
         "pitch_ang_range": [-45.0, 45.0],
         # "lin_vel_x_range": [-2.0, 2.0],
@@ -312,6 +330,14 @@ def get_cfgs():
         "increase_rate": 0.1,
         "acc_mean": 25.0,
         "acc_sigma": 8.3,
+
+        "acc_x_mean": 25.0,
+        "acc_x_sigma": 8.3,
+        "acc_y_mean": 25.0,
+        "acc_y_sigma": 8.3,
+        "acc_z_mean": 12.5,
+        "acc_z_sigma": 4.1,
+
         "sign_flip_rate": 0.0,
     }
     noise_cfg = {

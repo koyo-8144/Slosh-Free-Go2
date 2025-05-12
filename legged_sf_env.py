@@ -20,14 +20,18 @@ PLOT_ERROR = 0
 
 PLOT_TILT_ERROR_VEL_ACC_HEIGHT_CMDREC = 0
 RANDOM_RESAMPLE_EVAL = 0
+ROLL_EVAL = 0
 
-ACC_PROFILE_RESAMPLE = 0
+ACC_PROFILE_RESAMPLE = 1
 ACC_PROFILE_RESAMPLE_V2 = 0
+ACC_PROFILE_RESAMPLE_V3 = 0
 POS_ACC = 0
 NEG_ACC = 0
-V_ACC = 0
+V_ACC = 1
 
-HIP_REDUCTION = 0
+HIP_REDUCTION = 1
+
+TEACHER_STUDENT = 1
 
 MIX_RESAMPLE = 0
 TRAJECTORY_RESAMPLE = 0
@@ -90,10 +94,17 @@ class LeggedSfEnv:
         self.device = torch.device(device)
         self.num_envs = num_envs
         self.num_obs = obs_cfg["num_obs"]
+        if TEACHER_STUDENT:
+            self.num_domain_randomization = obs_cfg["num_domain_randomization"]
+            self.num_obs_history = obs_cfg["num_obs_history"]
+        
         self.num_privileged_obs = obs_cfg["num_privileged_obs"]
         self.num_actions = env_cfg["num_actions"]
         self.num_commands = command_cfg["num_commands"]
         self.folder_name = folder_name
+
+        # print("WORKS!!!!!!!!!!!!!!!!!!!!!")
+        # breakpoint()
 
         # self.num_props=env_cfg["n_proprio"],
         # self.num_hist=env_cfg["history_len"],
@@ -443,7 +454,7 @@ class LeggedSfEnv:
         self.vx_plane = torch.tensor(0.0, device=self.device)
         self.vy_plane = torch.tensor(0.0, device=self.device)
         self.vz_world = torch.tensor(0.0, device=self.device)
-        if ACC_PROFILE_RESAMPLE or ACC_PROFILE_RESAMPLE_V2 or MIX_RESAMPLE:
+        if ACC_PROFILE_RESAMPLE or ACC_PROFILE_RESAMPLE_V2 or ACC_PROFILE_RESAMPLE_V3 or MIX_RESAMPLE:
             self.acc_mean = self.command_cfg["acc_mean"]
             self.acc_sigma = self.command_cfg["acc_sigma"]
             self.sign_flip_rate = self.command_cfg["sign_flip_rate"]
@@ -458,8 +469,15 @@ class LeggedSfEnv:
             self.acc_dir = torch.full((self.num_envs,), 2.0, device=self.device, dtype=gs.tc_float)
             # self.acc_dir = torch.full((self.num_envs,), 25.0, device=self.device, dtype=gs.tc_float)
 
+            self.acc_x_mean = self.command_cfg["acc_x_mean"]
+            self.acc_x_sigma = self.command_cfg["acc_x_sigma"]
+            self.acc_y_mean = self.command_cfg["acc_y_mean"]
+            self.acc_y_sigma = self.command_cfg["acc_y_sigma"]
+            self.acc_z_mean = self.command_cfg["acc_z_mean"]
+            self.acc_z_sigma = self.command_cfg["acc_z_sigma"]
             self.acc_x_dir = torch.full((self.num_envs,), 2.0, device=self.device, dtype=gs.tc_float)
-            self.acc_y_dir = torch.full((self.num_envs,), 2.0, device=self.device, dtype=gs.tc_float)
+            self.acc_y_dir = torch.full((self.num_envs,), 1.0, device=self.device, dtype=gs.tc_float)
+            self.acc_z_dir = torch.full((self.num_envs,), 1.0, device=self.device, dtype=gs.tc_float)
 
         self.base_ang_vel = torch.zeros((self.num_envs, 3), device=self.device, dtype=gs.tc_float)
         self.projected_gravity = torch.zeros((self.num_envs, 3), device=self.device, dtype=gs.tc_float)
@@ -474,15 +492,6 @@ class LeggedSfEnv:
         self.reset_buf = torch.ones((self.num_envs,), device=self.device, dtype=gs.tc_int)
         self.episode_length_buf = torch.zeros((self.num_envs,), device=self.device, dtype=gs.tc_int)
         
-        self.env0_command_x = torch.tensor(0., device=self.device)
-        self.env0_command_y = torch.tensor(0., device=self.device)
-        self.env0_command_z = torch.tensor(0., device=self.device)
-        self.env1_command_x = torch.tensor(0., device=self.device)
-        self.env1_command_y = torch.tensor(0., device=self.device)
-        self.env1_command_z = torch.tensor(0., device=self.device)
-        self.env2_command_x = torch.tensor(0., device=self.device)
-        self.env2_command_y = torch.tensor(0., device=self.device)
-        self.env2_command_z = torch.tensor(0., device=self.device)
         
         if TRAJECTORY_RESAMPLE:
             max_episode_length_s = self.env_cfg['episode_length_s']
@@ -627,6 +636,7 @@ class LeggedSfEnv:
         self.init_foot()
         self._randomize_controls()
         self._randomize_rigids()
+        # breakpoint()
         print(f"Dof_pos_limits{self.dof_pos_limits}")
         print(f"Default dof pos {self.default_dof_pos}")
         print(f"Default hip pos {self.default_hip_pos}")
@@ -647,6 +657,38 @@ class LeggedSfEnv:
         #     (self.num_envs,), device=self.device, dtype=torch.int32
         # )
 
+        if TEACHER_STUDENT:
+            self.his_len = self.obs_cfg["history_lengh"]
+            self.base_ang_vel_his = torch.zeros(self.num_envs, self.his_len*3)
+            self.dof_pos_his = torch.zeros(self.num_envs, self.his_len*self.num_dof)
+            self.dof_pos_delta_his = torch.zeros(self.num_envs, self.his_len*self.num_dof)
+            self.dof_vel_his = torch.zeros(self.num_envs, self.his_len*self.num_dof)
+            self.projected_gravity_his = torch.zeros(self.num_envs, self.his_len*3)
+            self.cmd_his = torch.zeros(self.num_envs, self.his_len*3)
+            self.action_his = torch.zeros(self.num_envs, self.his_len*self.num_actions)
+
+            self.base_ang_vel_his = self.base_ang_vel_his.to(self.device)
+            self.base_ang_vel_his = self.base_ang_vel_his.to(self.device)
+            self.dof_pos_his = self.dof_pos_his.to(self.device)
+            self.dof_pos_delta_his = self.dof_pos_delta_his.to(self.device)
+            self.dof_vel_his = self.dof_vel_his.to(self.device)
+            self.projected_gravity_his = self.projected_gravity_his.to(self.device)
+            self.cmd_his = self.cmd_his.to(self.device)
+            self.action_his = self.action_his.to(self.device)
+
+            self.domain_randomizations_buf = torch.zeros((self.num_envs, self.num_domain_randomization), device=self.device, dtype=gs.tc_float)
+            self.obs_history_buf = torch.zeros((self.num_envs, self.num_obs_history), device=self.device, dtype=gs.tc_float)
+
+        self.env0_command_x = torch.tensor(0., device=self.device)
+        self.env0_command_y = torch.tensor(0., device=self.device)
+        self.env0_command_z = torch.tensor(0., device=self.device)
+        self.env1_command_x = torch.tensor(0., device=self.device)
+        self.env1_command_y = torch.tensor(0., device=self.device)
+        self.env1_command_z = torch.tensor(0., device=self.device)
+        self.env2_command_x = torch.tensor(0., device=self.device)
+        self.env2_command_y = torch.tensor(0., device=self.device)
+        self.env2_command_z = torch.tensor(0., device=self.device)
+
 
         if PLOT_PITCH:
             # self.base_lin_vel_x_list = []
@@ -655,7 +697,7 @@ class LeggedSfEnv:
             # self.last_base_lin_vel_z_list = []
             # self.ax_list = []
             # self.az_list = []
-            self.desired_theta_list = []
+            self.desired_pitch_list = []
             self.current_pitch_list = []
             self.time_steps = []  # Track time steps
             self.max_points = 500  # Limit number of points to store for performance
@@ -746,7 +788,7 @@ class LeggedSfEnv:
             self.axs.legend(["Ax", "Az"])
 
         if PLOT_ERROR:
-            self.tilt_error_list = []
+            self.error_pitch_list = []
             self.time_steps = []  # Track time steps
             self.max_points = 500  # Limit number of points to store for performance
 
@@ -762,9 +804,12 @@ class LeggedSfEnv:
         if PLOT_TILT_ERROR_VEL_ACC_HEIGHT_CMDREC:
             if not RANDOM_RESAMPLE_EVAL:
                 self.plot_save_len = 1000
-            self.desired_theta_list = []
+            self.desired_pitch_list = []
             self.current_pitch_list = []
-            self.tilt_error_list = []
+            self.error_pitch_list = []
+            self.desired_roll_list = []
+            self.current_roll_list = []
+            self.error_roll_list = []
             self.lin_vel_x_list = []
             self.last_lin_vel_x_list = []
             self.ax_list = []
@@ -789,15 +834,15 @@ class LeggedSfEnv:
             self.axs1.set_title("Desired and Current Pitch")
             self.axs1.set_xlabel("Time Steps")
             self.axs1.set_ylabel("Pitch [degrees]")
-            self.axs1.legend(["Desired theta", "Current Pitch"])
+            self.axs1.legend(["Desired Pitch", "Current Pitch"])
 
             plt.ion()
             self.fig2, self.axs2 = plt.subplots(1, 1, figsize=(4, 4))
 
-            self.axs2.set_title("Tilt Error")
+            self.axs2.set_title("Pitch Error")
             self.axs2.set_xlabel("Time Steps")
-            self.axs2.set_ylabel("Tilt Error [degrees]")
-            self.axs2.legend(["Error"])
+            self.axs2.set_ylabel("Pitch Error [degrees]")
+            self.axs2.legend(["Pitch Error"])
 
             plt.ion()
             self.fig3, self.axs3 = plt.subplots(1, 1, figsize=(4, 4))
@@ -822,7 +867,6 @@ class LeggedSfEnv:
             self.axs5.set_xlabel("Time Steps")
             self.axs5.set_ylabel("Height")
             self.axs5.legend(["Height"])
-
 
 
 
@@ -874,6 +918,21 @@ class LeggedSfEnv:
             self.axs11.set_ylabel("Angular Z Velocity Error [m/s]")
             self.axs11.legend(["Angular Z Velocity Error"])
 
+            plt.ion()
+            self.fig12, self.axs12 = plt.subplots(1, 1, figsize=(4, 4))
+
+            self.axs12.set_title("Desired and Current Roll")
+            self.axs12.set_xlabel("Time Steps")
+            self.axs12.set_ylabel("Roll [degrees]")
+            self.axs12.legend(["Desired Roll", "Current Roll"])
+
+            plt.ion()
+            self.fig13, self.axs13 = plt.subplots(1, 1, figsize=(4, 4))
+
+            self.axs13.set_title("Roll Error")
+            self.axs13.set_xlabel("Time Steps")
+            self.axs13.set_ylabel("Roll Error [degrees]")
+            self.axs13.legend(["Roll Error"])
 
 
         if PREDEFINED_RESAMPLE_EVAL:
@@ -997,10 +1056,12 @@ class LeggedSfEnv:
                 if RANDOM_RESAMPLE_TRAIN:
                     self.forward_cmd_speeds = [1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1]
                     self.backward_cmd_speeds = [-1.0, -0.9, -0.8, -0.7, -0.6, -0.5, -0.4, -0.3, -0.2, -0.1]
-                # self.forward_cmd_speeds = [0.5]
-                # self.backward_cmd_speeds = [-0.5]
+                # self.forward_cmd_speeds = [0.0]
+                # self.backward_cmd_speeds = [-0.0]
                 self.forward_cmd_speeds = [1.2, 0.8, 0.4]
                 self.backward_cmd_speeds = [-1.2, -0.8, -0.4]
+                if ROLL_EVAL:
+                    self.lateral_cmd_speeds = [1.2, 0.8, 0.4, -1.2, -0.8, -0.4]
                 # self.forward_cmd_speeds = [1.4]
                 # self.backward_cmd_speeds = [1.4]
                 # self.forward_cmd_speeds = [1.6, 1.2, 0.8, 0.4]
@@ -1025,6 +1086,7 @@ class LeggedSfEnv:
         self.max_accel_norm = torch.tensor(1.0, device=self.device)
         self.max_pitch_error = torch.tensor(0.1, device=self.device)  # start >0 to avoid instability
         self.mean_pitch_error_normalized = torch.tensor(0.0, device=self.device)
+        self.mean_roll_error_normalized = torch.tensor(0.0, device=self.device)
         self.mean_accel_norm_normalized = torch.tensor(0.0, device=self.device)
 
 
@@ -1108,7 +1170,7 @@ class LeggedSfEnv:
     def _resample_commands_pitch(self, envs_idx):
         self.commands[envs_idx, 0] = gs_rand_float(*self.command_cfg["lin_vel_x_range"], (len(envs_idx),), self.device)
         self.commands[envs_idx, 1] = gs_rand_float(*self.command_cfg["lin_vel_y_range"], (len(envs_idx),), self.device)
-        self.commands[envs_idx, 2] = gs_rand_float(*self.command_cfg["ang_vel_range"], (len(envs_idx),), self.device)
+        self.commands[envs_idx, 2] = gs_rand_float(*self.command_cfg["ang_vel_z_range"], (len(envs_idx),), self.device)
         self.commands[envs_idx, 3] = gs_rand_float(*self.command_cfg["pitch_ang_range"], (len(envs_idx),), self.device)
         # print("Sampled Linear Velocity x: ", self.commands[envs_idx, 0])
         # print("Sampled Pitch Angle Command: ", self.commands[envs_idx, 3])
@@ -1119,7 +1181,7 @@ class LeggedSfEnv:
     def _resample_commands(self, envs_idx):
         self.commands[envs_idx, 0] = gs_rand_float(*self.command_cfg["lin_vel_x_range"], (len(envs_idx),), self.device)
         self.commands[envs_idx, 1] = gs_rand_float(*self.command_cfg["lin_vel_y_range"], (len(envs_idx),), self.device)
-        self.commands[envs_idx, 2] = gs_rand_float(*self.command_cfg["ang_vel_range"], (len(envs_idx),), self.device)
+        self.commands[envs_idx, 2] = gs_rand_float(*self.command_cfg["ang_vel_z_range"], (len(envs_idx),), self.device)
         # self.commands[envs_idx, 0] = 0.0
         # self.commands[envs_idx, 1] = 0.0
         # self.commands[envs_idx, 2] = 0.0
@@ -1159,7 +1221,173 @@ class LeggedSfEnv:
 
         # self.commands[envs_idx, 0] = gs_rand_float(*self.command_cfg["lin_vel_x_range"], (len(envs_idx),), self.device)
         # self.commands[envs_idx, 1] = gs_rand_float(*self.command_cfg["lin_vel_y_range"], (len(envs_idx),), self.device)
-        # self.commands[envs_idx, 2] = gs_rand_float(*self.command_cfg["ang_vel_range"], (len(envs_idx),), self.device)
+        # self.commands[envs_idx, 2] = gs_rand_float(*self.command_cfg["ang_vel_z_range"], (len(envs_idx),), self.device)
+
+    def _resample_commands_gaussian_acc_v3(self, envs_idx, reset_flag):
+        # if envs_idx.numel() != 0:
+        #     print(f"Resample velocity for {envs_idx} at step {self.episode_length_buf}")
+        #     breakpoint()
+        old_lin_vel_x_command = self.commands[envs_idx, 0]
+        old_lin_vel_y_command = self.commands[envs_idx, 1]
+        old_ang_vel_z_command = self.commands[envs_idx, 2]
+
+        dt = self.dt
+        # sampled_ax = torch.randn((len(envs_idx),), device=self.device) * self.acc_sigma
+        sampled_ax = torch.normal(mean=self.acc_x_mean, std=self.acc_x_sigma, size=(len(envs_idx),), device=self.device)
+        sampled_ay = torch.normal(mean=self.acc_y_mean, std=self.acc_y_sigma, size=(len(envs_idx),), device=self.device)
+        sampled_az = torch.normal(mean=self.acc_z_mean, std=self.acc_z_sigma, size=(len(envs_idx),), device=self.device)
+        # sampled_ax /= 2
+
+        if V_ACC:
+            self.commands[envs_idx, 0] += self.acc_x_dir[envs_idx] * dt
+            self.commands[envs_idx, 1] += self.acc_y_dir[envs_idx] * dt
+            self.commands[envs_idx, 2] += self.acc_z_dir[envs_idx] * dt
+        else:
+            self.commands[envs_idx, 0] += sampled_ax * dt
+            self.commands[envs_idx, 1] += sampled_ay * dt
+            self.commands[envs_idx, 2] += sampled_az * dt
+        # self.commands[envs_idx, 0] += 0
+        
+        if reset_flag: # when Go2 is not walking
+            # resample both negative and positive velocity
+            self.commands[envs_idx, 0] = gs_rand_float(*self.command_cfg["lin_vel_x_range"], (len(envs_idx),), self.device)
+            self.commands[envs_idx, 1] = gs_rand_float(*self.command_cfg["lin_vel_y_range"], (len(envs_idx),), self.device)
+            self.commands[envs_idx, 2] = gs_rand_float(*self.command_cfg["ang_vel_z_range"], (len(envs_idx),), self.device)
+        else: # while Go2 is walking
+            # Define the full allowed range as provided in self.command_cfg.
+            full_min_vx = torch.full_like(old_lin_vel_x_command, self.command_cfg["lin_vel_x_range"][0])
+            full_max_vx = torch.full_like(old_lin_vel_x_command, self.command_cfg["lin_vel_x_range"][1])
+
+            # For environments with a positive old velocity, we want to allow only non-negative values.
+            pos_min_vx = torch.full_like(old_lin_vel_x_command, -self.sign_flip_rate)
+            pos_max_vx = full_max_vx  # maximum remains the same.
+
+            # For environments with a negative old velocity, we want to allow only non-positive values.
+            neg_min_vx = full_min_vx  # minimum remains the same.
+            neg_max_vx = torch.full_like(old_lin_vel_x_command, self.sign_flip_rate)
+
+            # For those environments where the old velocity is exactly zero, allow the full range.
+            # Create element-wise minimum and maximum bounds based on the sign of old_lin_vel_x_command.
+            min_vx = torch.where(old_lin_vel_x_command > 0, pos_min_vx,
+                                torch.where(old_lin_vel_x_command < 0, neg_min_vx, full_min_vx))
+            max_vx = torch.where(old_lin_vel_x_command > 0, pos_max_vx,
+                                torch.where(old_lin_vel_x_command < 0, neg_max_vx, full_max_vx))
+
+
+            # Define the full allowed range as provided in self.command_cfg.
+            full_min_vy = torch.full_like(old_lin_vel_y_command, self.command_cfg["lin_vel_y_range"][0])
+            full_max_vy = torch.full_like(old_lin_vel_y_command, self.command_cfg["lin_vel_y_range"][1])
+
+            # For environments with a positive old velocity, we want to allow only non-negative values.
+            pos_min_vy = torch.full_like(old_lin_vel_y_command, -self.sign_flip_rate)
+            pos_max_vy = full_max_vy  # maximum remains the same.
+
+            # For environments with a negative old velocity, we want to allow only non-positive values.
+            neg_min_vy = full_min_vy  # minimum remains the same.
+            neg_max_vy = torch.full_like(old_lin_vel_y_command, self.sign_flip_rate)
+
+            # For those environments where the old velocity is exactly zero, allow the full range.
+            # Create element-wise minimum and maximum bounds based on the sign of old_lin_vel_x_command.
+            min_vy = torch.where(old_lin_vel_y_command > 0, pos_min_vy,
+                                torch.where(old_lin_vel_y_command < 0, neg_min_vy, full_min_vy))
+            max_vy = torch.where(old_lin_vel_y_command > 0, pos_max_vy,
+                                torch.where(old_lin_vel_y_command < 0, neg_max_vy, full_max_vy))
+
+
+            # Define the full allowed range as provided in self.command_cfg.
+            full_min_wz = torch.full_like(old_ang_vel_z_command, self.command_cfg["ang_vel_z_range"][0])
+            full_max_wz = torch.full_like(old_ang_vel_z_command, self.command_cfg["ang_vel_z_range"][1])
+
+            # For environments with a positive old velocity, we want to allow only non-negative values.
+            pos_min_wz = torch.full_like(old_ang_vel_z_command, -self.sign_flip_rate)
+            pos_max_wz = full_max_wz  # maximum remains the same.
+
+            # For environments with a negative old velocity, we want to allow only non-positive values.
+            neg_min_wz = full_min_wz  # minimum remains the same.
+            neg_max_wz = torch.full_like(old_ang_vel_z_command, self.sign_flip_rate)
+
+            # For those environments where the old velocity is exactly zero, allow the full range.
+            # Create element-wise minimum and maximum bounds based on the sign of old_lin_vel_x_command.
+            min_wz = torch.where(old_ang_vel_z_command > 0, pos_min_wz,
+                                torch.where(old_ang_vel_z_command < 0, neg_min_wz, full_min_wz))
+            max_wz = torch.where(old_ang_vel_z_command > 0, pos_max_wz,
+                                torch.where(old_ang_vel_z_command < 0, neg_max_wz, full_max_wz))
+
+
+
+            # Finally, clamp the new x-velocity command for each environment element-wise.
+            self.commands[envs_idx, 0] = torch.max(torch.min(self.commands[envs_idx, 0], max_vx), min_vx)
+            self.commands[envs_idx, 1] = torch.max(torch.min(self.commands[envs_idx, 1], max_vy), min_vy)
+            self.commands[envs_idx, 2] = torch.max(torch.min(self.commands[envs_idx, 2], max_wz), min_wz)
+
+            if V_ACC:
+                # Get scalar values from config
+                vx_max_scalar = self.command_cfg["lin_vel_x_range"][1]  # e.g., 1.0
+                vx_min_scalar = self.command_cfg["lin_vel_x_range"][0]  # e.g., -1.0
+                vy_max_scalar = self.command_cfg["lin_vel_y_range"][1]  # e.g., 1.0
+                vy_min_scalar = self.command_cfg["lin_vel_y_range"][0]  # e.g., -1.0
+                wz_max_scalar = self.command_cfg["ang_vel_z_range"][1]  # e.g., 1.0
+                wz_min_scalar = self.command_cfg["ang_vel_z_range"][0]  # e.g., -1.0
+
+                # Get the clamped velocities (already written to self.commands[envs_idx, 0])
+                vx = self.commands[envs_idx, 0]
+                vy = self.commands[envs_idx, 1]
+                wz = self.commands[envs_idx, 2]
+
+                # Flip to negative direction when hitting +vx_max
+                flip_to_neg_vx = (vx >= vx_max_scalar - 1e-5)
+                flip_to_neg_vx_indices = envs_idx[flip_to_neg_vx.nonzero(as_tuple=False).squeeze(-1)]
+                if flip_to_neg_vx_indices.numel() > 0:
+                    # self.acc_dir[flip_to_neg_indices] = -0.2 # -abs(sampled_ax)
+                    self.acc_x_dir[flip_to_neg_vx_indices] = -abs(sampled_ax[flip_to_neg_vx.nonzero(as_tuple=False).squeeze(-1)])
+
+                # Flip to positive direction when hitting -vx_min
+                flip_to_pos_vx = (vx <= vx_min_scalar + 1e-5)
+                flip_to_pos_vx_indices = envs_idx[flip_to_pos_vx.nonzero(as_tuple=False).squeeze(-1)]
+                if flip_to_pos_vx_indices.numel() > 0:
+                    # self.acc_dir[flip_to_pos_indices] = 0.2 # abs(sampled_ax)
+                    self.acc_x_dir[flip_to_pos_vx_indices] = abs(sampled_ax[flip_to_pos_vx.nonzero(as_tuple=False).squeeze(-1)])
+
+
+                # Flip to negative direction when hitting +vx_max
+                flip_to_neg_vy = (vy >= vy_max_scalar - 1e-5)
+                flip_to_neg_vy_indices = envs_idx[flip_to_neg_vy.nonzero(as_tuple=False).squeeze(-1)]
+                if flip_to_neg_vy_indices.numel() > 0:
+                    # self.acc_dir[flip_to_neg_indices] = -0.2 # -abs(sampled_ax)
+                    self.acc_y_dir[flip_to_neg_vy_indices] = -abs(sampled_ay[flip_to_neg_vy.nonzero(as_tuple=False).squeeze(-1)])
+
+                # Flip to positive direction when hitting -vx_min
+                flip_to_pos_vy = (vy <= vy_min_scalar + 1e-5)
+                flip_to_pos_vy_indices = envs_idx[flip_to_pos_vy.nonzero(as_tuple=False).squeeze(-1)]
+                if flip_to_pos_vy_indices.numel() > 0:
+                    # self.acc_dir[flip_to_pos_indices] = 0.2 # abs(sampled_ax)
+                    self.acc_y_dir[flip_to_pos_vy_indices] = abs(sampled_ay[flip_to_pos_vy.nonzero(as_tuple=False).squeeze(-1)])
+                
+                # Flip to negative direction when hitting +vx_max
+                flip_to_neg_wz = (wz >= wz_max_scalar - 1e-5)
+                flip_to_neg_wz_indices = envs_idx[flip_to_neg_wz.nonzero(as_tuple=False).squeeze(-1)]
+                if flip_to_neg_wz_indices.numel() > 0:
+                    # self.acc_dir[flip_to_neg_indices] = -0.2 # -abs(sampled_ax)
+                    self.acc_z_dir[flip_to_neg_wz_indices] = -abs(sampled_az[flip_to_neg_wz.nonzero(as_tuple=False).squeeze(-1)])
+
+                # Flip to positive direction when hitting -vx_min
+                flip_to_pos_wz = (wz <= wz_min_scalar + 1e-5)
+                flip_to_pos_wz_indices = envs_idx[flip_to_pos_wz.nonzero(as_tuple=False).squeeze(-1)]
+                if flip_to_pos_wz_indices.numel() > 0:
+                    # self.acc_dir[flip_to_pos_indices] = 0.2 # abs(sampled_ax)
+                    self.acc_z_dir[flip_to_pos_wz_indices] = abs(sampled_az[flip_to_pos_wz.nonzero(as_tuple=False).squeeze(-1)])
+                
+
+        # if RANDOM_RESAMPLE_EVAL:
+        self.env0_command_x = self.commands[0, 0]
+        self.env0_command_y = self.commands[0, 1]
+        self.env0_command_z = self.commands[0, 2]
+        self.env1_command_x = self.commands[1, 0]
+        self.env1_command_y = self.commands[1, 1]
+        self.env1_command_z = self.commands[1, 2]
+        self.env2_command_x = self.commands[2, 0]
+        self.env2_command_y = self.commands[2, 1]
+        self.env2_command_z = self.commands[2, 2]
 
     def _resample_commands_gaussian_acc_v2(self, envs_idx, reset_flag):
         # if envs_idx.numel() != 0:
@@ -1169,13 +1397,13 @@ class LeggedSfEnv:
         old_lin_vel_y_command = self.commands[envs_idx, 1]
 
         # For y and yaw, keep your old logic:
-        self.commands[envs_idx, 2] = gs_rand_float(*self.command_cfg["ang_vel_range"], (len(envs_idx),), self.device)
+        self.commands[envs_idx, 2] = gs_rand_float(*self.command_cfg["ang_vel_z_range"], (len(envs_idx),), self.device)
         # self.commands[envs_idx, 2] = 0.0
 
         dt = self.dt
         # sampled_ax = torch.randn((len(envs_idx),), device=self.device) * self.acc_sigma
-        sampled_ax = torch.normal(mean=self.acc_mean, std=self.acc_sigma, size=(len(envs_idx),), device=self.device)
-        sampled_ay = torch.normal(mean=self.acc_mean, std=self.acc_sigma, size=(len(envs_idx),), device=self.device)
+        sampled_ax = torch.normal(mean=self.acc_x_mean, std=self.acc_x_sigma, size=(len(envs_idx),), device=self.device)
+        sampled_ay = torch.normal(mean=self.acc_y_mean, std=self.acc_y_sigma, size=(len(envs_idx),), device=self.device)
         # sampled_ax /= 2
 
         if V_ACC:
@@ -1319,7 +1547,7 @@ class LeggedSfEnv:
 
         # For y and yaw, keep your old logic:
         self.commands[envs_idx, 1] = gs_rand_float(*self.command_cfg["lin_vel_y_range"], (len(envs_idx),), self.device)
-        self.commands[envs_idx, 2] = gs_rand_float(*self.command_cfg["ang_vel_range"], (len(envs_idx),), self.device)
+        self.commands[envs_idx, 2] = gs_rand_float(*self.command_cfg["ang_vel_z_range"], (len(envs_idx),), self.device)
         # self.commands[envs_idx, 1] = 0.0
         # self.commands[envs_idx, 2] = 0.0
 
@@ -1742,9 +1970,14 @@ class LeggedSfEnv:
     def _resample_random_commands_eval(self):
         if self.start_stop_cmd:
             self.lin_vel_x_cmd = 0.0
+            if ROLL_EVAL:
+                self.lin_vel_y_cmd = 0.0
             print("Start-stop phase active: commanding stop (0 m/s).")
             self.commands[0, 0] = self.lin_vel_x_cmd
-            self.commands[0, 1] = 0.0
+            if ROLL_EVAL: 
+                self.commands[0, 1] = self.lin_vel_y_cmd
+            else:
+                self.commands[0, 1] = 0.0
             self.commands[0, 2] = 0.0
             if self.start_stop_cmd_count == self.start_stop_cmd_len:
                 self.start_stop_cmd = False  # End stop phase
@@ -1754,9 +1987,17 @@ class LeggedSfEnv:
                 if not self.duplicate:
                     self.lin_vel_x_cmd = random.choice(self.forward_cmd_speeds)
                     self.forward1_cmd_vel = self.lin_vel_x_cmd
+                    if ROLL_EVAL:
+                        self.lin_vel_y_cmd = random.choice(self.lateral_cmd_speeds)
+                        self.lateral1_cmd_vel = self.lin_vel_y_cmd
             print("Resampling forward velocity randomly: ", self.forward1_cmd_vel)
+            if ROLL_EVAL:
+                print("Resampling lateral velocity randomly: ", self.lateral1_cmd_vel)
             self.commands[0, 0] = self.forward1_cmd_vel
-            self.commands[0, 1] = 0.0
+            if ROLL_EVAL: 
+                self.commands[0, 1] = self.lateral1_cmd_vel
+            else:
+                self.commands[0, 1] = 0.0
             self.commands[0, 2] = 0.0
             if self.forward1_cmd_count == self.forward1_cmd_len:
                 self.forward1_cmd = False
@@ -1766,9 +2007,17 @@ class LeggedSfEnv:
                 if not self.duplicate:
                     self.lin_vel_x_cmd = random.choice(self.forward_cmd_speeds)
                     self.forward2_cmd_vel = self.lin_vel_x_cmd
+                    if ROLL_EVAL:
+                        self.lin_vel_y_cmd = random.choice(self.lateral_cmd_speeds)
+                        self.lateral2_cmd_vel = self.lin_vel_y_cmd
             print("Resampling forward velocity randomly: ", self.forward2_cmd_vel)
+            if ROLL_EVAL:
+                print("Resampling lateral velocity randomly: ", self.lateral2_cmd_vel)
             self.commands[0, 0] = self.forward2_cmd_vel
-            self.commands[0, 1] = 0.0
+            if ROLL_EVAL: 
+                self.commands[0, 1] = self.lateral2_cmd_vel
+            else:
+                self.commands[0, 1] = 0.0
             self.commands[0, 2] = 0.0
             if self.forward2_cmd_count == self.forward2_cmd_len:
                 self.forward2_cmd = False
@@ -1778,18 +2027,31 @@ class LeggedSfEnv:
                 if not self.duplicate:
                     self.lin_vel_x_cmd = random.choice(self.forward_cmd_speeds)
                     self.forward3_cmd_vel = self.lin_vel_x_cmd
+                    if ROLL_EVAL:
+                        self.lin_vel_y_cmd = random.choice(self.lateral_cmd_speeds)
+                        self.lateral3_cmd_vel = self.lin_vel_y_cmd
             print("Resampling forward velocity randomly: ", self.forward3_cmd_vel)
+            if ROLL_EVAL:
+                print("Resampling lateral velocity randomly: ", self.lateral3_cmd_vel)
             self.commands[0, 0] = self.forward3_cmd_vel
-            self.commands[0, 1] = 0.0
+            if ROLL_EVAL: 
+                self.commands[0, 1] = self.lateral3_cmd_vel
+            else:
+                self.commands[0, 1] = 0.0
             self.commands[0, 2] = 0.0
             if self.forward3_cmd_count == self.forward3_cmd_len:
                 self.forward3_cmd = False
             self.forward3_cmd_count += 1
         elif self.middle_stop_cmd:
             self.lin_vel_x_cmd = 0.0
+            if ROLL_EVAL:
+                self.lin_vel_y_cmd = 0.0
             print("Middle-stop phase active: commanding stop (0 m/s).")
             self.commands[0, 0] = self.lin_vel_x_cmd
-            self.commands[0, 1] = 0.0
+            if ROLL_EVAL: 
+                self.commands[0, 1] = self.lin_vel_y_cmd
+            else:
+                self.commands[0, 1] = 0.0
             self.commands[0, 2] = 0.0
             if self.middle_stop_cmd_count == self.middle_stop_cmd_len:
                 self.middle_stop_cmd = False  # End stop phase
@@ -1799,9 +2061,17 @@ class LeggedSfEnv:
                 if not self.duplicate:
                     self.lin_vel_x_cmd = random.choice(self.backward_cmd_speeds)
                     self.backward1_cmd_vel = self.lin_vel_x_cmd
+                    if ROLL_EVAL:
+                        self.lin_vel_y_cmd = random.choice(self.lateral_cmd_speeds)
+                        self.lateral4_cmd_vel = self.lin_vel_y_cmd
             print("Resampling forward velocity randomly: ", self.backward1_cmd_vel)
+            if ROLL_EVAL:
+                print("Resampling lateral velocity randomly: ", self.lateral4_cmd_vel)
             self.commands[0, 0] = self.backward1_cmd_vel
-            self.commands[0, 1] = 0.0
+            if ROLL_EVAL: 
+                self.commands[0, 1] = self.lateral4_cmd_vel
+            else:
+                self.commands[0, 1] = 0.0
             self.commands[0, 2] = 0.0
             if self.backward1_cmd_count == self.backward1_cmd_len:
                 self.backward1_cmd = False
@@ -1811,9 +2081,17 @@ class LeggedSfEnv:
                 if not self.duplicate:
                     self.lin_vel_x_cmd = random.choice(self.backward_cmd_speeds)
                     self.backward2_cmd_vel = self.lin_vel_x_cmd
+                    if ROLL_EVAL:
+                        self.lin_vel_y_cmd = random.choice(self.lateral_cmd_speeds)
+                        self.lateral5_cmd_vel = self.lin_vel_y_cmd
             print("Resampling forward velocity randomly: ", self.backward2_cmd_vel)
+            if ROLL_EVAL:
+                print("Resampling lateral velocity randomly: ", self.lateral5_cmd_vel)
             self.commands[0, 0] = self.backward2_cmd_vel
-            self.commands[0, 1] = 0.0
+            if ROLL_EVAL: 
+                self.commands[0, 1] = self.lateral5_cmd_vel
+            else:
+                self.commands[0, 1] = 0.0
             self.commands[0, 2] = 0.0
             if self.backward2_cmd_count == self.backward2_cmd_len:
                 self.backward2_cmd = False
@@ -1823,18 +2101,31 @@ class LeggedSfEnv:
                 if not self.duplicate:
                     self.lin_vel_x_cmd = random.choice(self.backward_cmd_speeds)
                     self.backward3_cmd_vel = self.lin_vel_x_cmd
+                    if ROLL_EVAL:
+                        self.lin_vel_y_cmd = random.choice(self.lateral_cmd_speeds)
+                        self.lateral6_cmd_vel = self.lin_vel_y_cmd
             print("Resampling forward velocity randomly: ", self.backward3_cmd_vel)
+            if ROLL_EVAL:
+                print("Resampling lateral velocity randomly: ", self.lateral6_cmd_vel)
             self.commands[0, 0] = self.backward3_cmd_vel
-            self.commands[0, 1] = 0.0
+            if ROLL_EVAL: 
+                self.commands[0, 1] = self.lateral6_cmd_vel
+            else:
+                self.commands[0, 1] = 0.0
             self.commands[0, 2] = 0.0
             if self.backward3_cmd_count == self.backward3_cmd_len:
                 self.backward3_cmd = False
             self.backward3_cmd_count += 1
         elif self.finish_stop_cmd:
             self.lin_vel_x_cmd = 0.0
+            if ROLL_EVAL:
+                self.lin_vel_y_cmd = 0.0
             print("Finish-stop phase active: commanding stop (0 m/s).")
             self.commands[0, 0] = self.lin_vel_x_cmd
-            self.commands[0, 1] = 0.0
+            if ROLL_EVAL: 
+                self.commands[0, 1] = self.lin_vel_y_cmd
+            else:
+                self.commands[0, 1] = 0.0
             self.commands[0, 2] = 0.0
             if self.finish_stop_cmd_count == self.finish_stop_cmd_len:
                 self.fnish_cmd_stop = False  # End stop phase
@@ -2051,7 +2342,8 @@ class LeggedSfEnv:
         # return self.lin_vel_x_range_min, self.lin_vel_x_range_max, self.tracking_lin_vel_rew_mean, self.tracking_lin_vel_rew_threshold_one, self.desired_pitch_mean, self.pitch_count, self.action_rate_scale
         if TRAJECTORY_RESAMPLE:
             return self.env0_command_x, self.env0_command_y, self.env0_command_z, self.env0_x0_x, self.env0_x0_y, self.env0_x0_z, self.env0_xf_x, self.env0_xf_y, self.env0_xf_z, self.max_episode_length_s[0], self.env0_pos_x, self.env0_pos_y, self.env0_pos_z, self.env0_acc_x, self.env0_acc_y, self.env0_acc_z, self.env0_jerk_x, self.env0_jerk_y, self.env0_jerk_z
-        # elif ACC_PROFILE_RESAMPLE:
+        elif ACC_PROFILE_RESAMPLE_V2 or ACC_PROFILE_RESAMPLE_V3:
+            return self.mean_pitch_error_normalized, self.mean_roll_error_normalized, self.mean_accel_norm_normalized, self.smoothed_ax_mean, self.smoothed_az_mean, self.env0_command_x, self.env0_command_y, self.env0_command_z, self.env1_command_x, self.env1_command_y, self.env1_command_z, self.env2_command_x, self.env2_command_y, self.env2_command_z
         else:
             return self.mean_pitch_error_normalized, self.mean_accel_norm_normalized, self.smoothed_ax_mean, self.smoothed_az_mean, self.env0_command_x, self.env0_command_y, self.env0_command_z, self.env1_command_x, self.env1_command_y, self.env1_command_z, self.env2_command_x, self.env2_command_y, self.env2_command_z
 
@@ -2201,6 +2493,7 @@ class LeggedSfEnv:
         self.base_ang_vel[:] = transform_by_quat(self.robot.get_ang(), inv_base_quat)
         self.projected_gravity = transform_by_quat(self.global_gravity, inv_base_quat)
         self.dof_pos[:] = self.robot.get_dofs_position(self.motor_dofs)
+        self.dof_pos_delta = (self.dof_pos - self.default_dof_pos)
         self.dof_vel[:] = self.robot.get_dofs_velocity(self.motor_dofs)
         self.hip_pos[:] = self.robot.get_dofs_position(self.hip_dofs)
         self.hip_vel[:] = self.robot.get_dofs_velocity(self.hip_dofs)
@@ -2209,6 +2502,17 @@ class LeggedSfEnv:
             device=self.device,
             dtype=gs.tc_float,
         )       
+
+        if TEACHER_STUDENT:
+            self.base_ang_vel_his =  torch.cat((self.base_ang_vel_his[:, 3:], self.base_ang_vel), dim=-1)
+            self.dof_pos_his = torch.cat((self.dof_pos_his[:, 12:], self.dof_pos), dim=-1)
+            self.dof_pos_delta_his = torch.cat((self.dof_pos_delta_his[:, 12:], self.dof_pos_delta), dim=-1)
+            self.dof_vel_his = torch.cat((self.dof_vel_his[:, 12:], self.dof_vel), dim=-1)
+            self.cmd_his =  torch.cat((self.cmd_his[:, 3:], self.commands), dim=-1)
+            self.projected_gravity_his = torch.cat((self.projected_gravity_his[:, 3:], self.projected_gravity), dim=-1)
+            self.action_his = torch.cat((self.action_his[:, 12:], self.actions), dim=-1)
+
+
         # contact_force_tensor = self.robot.get_links_net_contact_force()
         # # Make sure it's a torch tensor
         # if not torch.is_tensor(contact_force_tensor):
@@ -2240,6 +2544,9 @@ class LeggedSfEnv:
         elif ACC_PROFILE_RESAMPLE_V2:
             reset_flag = False
             self._resample_commands_gaussian_acc_v2(envs_idx, reset_flag)
+        elif ACC_PROFILE_RESAMPLE_V3:
+            reset_flag = False
+            self._resample_commands_gaussian_acc_v3(envs_idx, reset_flag)
         elif DESIRED_PITCH_COMMAND:
             self._resample_desired_pitch(envs_idx)
         elif PREDEFINED_RESAMPLE_EVAL or PREDEFINED_RESAMPLE_TRY_EVAL:
@@ -2259,7 +2566,7 @@ class LeggedSfEnv:
                 self._resample_commands(envs_idx)
         else:
             self._resample_commands(envs_idx)
-        self._randomize_rigids(envs_idx)
+        # self._randomize_rigids(envs_idx)
         # random push
         self.common_step_counter += 1
         push_interval_s = self.env_cfg['push_interval_s']
@@ -2298,9 +2605,10 @@ class LeggedSfEnv:
                 print("STOP VIDEO RECORDING")
                 self.stop_recording("/home/psxkf4/Genesis/logs/paper/videos/run_001.mp4")
 
-   
-
-        return self.obs_buf, self.privileged_obs_buf, self.rew_buf, self.reset_buf, self.extras
+        if TEACHER_STUDENT:
+            return self.obs_buf, self.rew_buf, self.reset_buf, self.extras
+        else:
+            return self.obs_buf, self.privileged_obs_buf, self.rew_buf, self.reset_buf, self.extras
 
 
     def compute_observations(self):
@@ -2337,6 +2645,9 @@ class LeggedSfEnv:
         # print("shape of self.az: ", self.az.unsqueeze(-1).shape)
         # print("shape of self.rot_y: ", self.rot_y.shape)
         # print("shape of tilt_error: ", tilt_error.shape)
+        # print("shape of self.frictions ", self.frictions.shape)
+        # print("shape of self.added_masses: ", self.added_masses.shape)
+        # print("shape of self.motor_strengths: ", self.motor_strengths.shape)
         # breakpoint()
         # compute observations
         self.obs_buf = torch.cat(
@@ -2351,7 +2662,9 @@ class LeggedSfEnv:
                 # self.xf[:, 0].unsqueeze(1), # 1
                 # self.max_episode_length.unsqueeze(1), # 1
                 self.commands * self.commands_scale,  # 3
-                (self.dof_pos - self.default_dof_pos) * self.obs_scales["dof_pos"],  # 12
+                # (self.dof_pos - self.default_dof_pos) * self.obs_scales["dof_pos"],  # 12
+                self.dof_pos_delta * self.obs_scales["dof_pos"],  # 12
+                # self.dof_pos * self.obs_scales["dof_pos"],  # 12
                 self.dof_vel * self.obs_scales["dof_vel"],  # 12
                 self.actions,  # 12
                 # self.rot_y_deg, # 1
@@ -2360,6 +2673,29 @@ class LeggedSfEnv:
             ],
             axis=-1,
         )
+                    
+        if TEACHER_STUDENT:
+            self.domain_randomizations_buf = torch.cat(
+                [
+                    self.frictions, # 24
+                    self.added_masses, # 1
+                    self.motor_strengths, # 12
+                ],
+                axis=-1,
+            )
+            self.obs_history_buf = torch.cat(
+                [
+                    self.base_ang_vel_his, # 15*3
+                    self.projected_gravity_his, # 15*3
+                    self.cmd_his, # 15*3
+                    self.dof_pos_delta_his, # 15*12
+                    # self.dof_pos_his, # 15*12
+                    self.dof_vel_his, # 15*12
+                    self.action_his # 15*12
+                ],
+                axis=-1,
+            )
+        # else:
         # compute observations
         self.privileged_obs_buf = torch.cat(
             [
@@ -2374,7 +2710,9 @@ class LeggedSfEnv:
                 # self.xf[:, 0].unsqueeze(1), # 1
                 # self.max_episode_length.unsqueeze(1), # 1
                 self.commands * self.commands_scale,  # 3
-                (self.dof_pos - self.default_dof_pos) * self.obs_scales["dof_pos"],  # 12
+                # (self.dof_pos - self.default_dof_pos) * self.obs_scales["dof_pos"],  # 12
+                self.dof_pos_delta * self.obs_scales["dof_pos"],  # 12
+                # self.dof_pos * self.obs_scales["dof_pos"],  # 12
                 self.dof_vel * self.obs_scales["dof_vel"],  # 12
                 self.actions,  # 12
                 # self.rot_y_deg, # 1
@@ -2383,13 +2721,14 @@ class LeggedSfEnv:
             ],
             axis=-1,
         )
-        
-        self.obs_buf = torch.clip(self.obs_buf, -self.clip_obs, self.clip_obs)
         self.privileged_obs_buf = torch.clip(self.privileged_obs_buf, -self.clip_obs, self.clip_obs)
+
+        self.obs_buf = torch.clip(self.obs_buf, -self.clip_obs, self.clip_obs)
         if self.add_noise:
             self.obs_buf += (2 * torch.rand_like(self.obs_buf) - 1) * self.noise_scale_vec
         self.check_and_sanitize_observations()
         # self.check_and_reset_observations()
+
         self.second_last_actions[:] = self.last_actions[:]
         self.last_actions[:] = self.actions[:]
         self.last_dof_vel[:] = self.dof_vel[:]
@@ -2449,7 +2788,7 @@ class LeggedSfEnv:
             # self.append_limited(self.last_base_lin_vel_z_list, last_base_lin_vel_z)
             # self.append_limited(self.ax_list, ax_val)
             # self.append_limited(self.az_list, az_val)
-            self.append_limited(self.desired_theta_list, desired_pitch_degrees)
+            self.append_limited(self.desired_pitch_list, desired_pitch_degrees)
             self.append_limited(self.current_pitch_list, rot_y)
             self.append_limited(self.time_steps, self.a_count)
 
@@ -2517,7 +2856,7 @@ class LeggedSfEnv:
             print("Current pitch degrees: ", rot_y)
             print("Pitch Error: ", error)
 
-            self.append_limited(self.tilt_error_list, error)
+            self.append_limited(self.error_pitch_list, error)
             self.append_limited(self.time_steps, self.a_count)
 
             self.upate_plot_error()
@@ -2528,8 +2867,9 @@ class LeggedSfEnv:
         if PLOT_TILT_ERROR_VEL_ACC_HEIGHT_CMDREC:
             # 1. Compute raw a_x, a_z
             ax = (self.vx_plane - self.last_vx_plane) / self.dt
+            ay = (self.vy_plane - self.last_vy_plane) / self.dt
             az = -9.8 + (self.vz_world - self.last_vz_world) / self.dt
-    
+
             # print("raw ax: ", ax)
             # self.t += self.dt
             # print("Times step: ", self.t)
@@ -2538,12 +2878,14 @@ class LeggedSfEnv:
 
             # 2. Exponential smoothing
             self.ax_filtered = self.alpha * self.ax_filtered + (1.0 - self.alpha) * ax
+            self.ay_filtered = self.alpha * self.ay_filtered + (1.0 - self.alpha) * ay
             self.az_filtered = self.alpha * self.az_filtered + (1.0 - self.alpha) * az
             
+
             # 3. Use the filtered values
             ax_smooth = self.ax_filtered * self.ax_scale
+            ay_smooth = self.ay_filtered
             az_smooth = self.az_filtered * self.az_scale
-
 
             # print("ax: ", ax_smooth)
 
@@ -2553,22 +2895,31 @@ class LeggedSfEnv:
             # print("Before: ", desired_pitch_degrees)
             # desired_pitch_degrees = -desired_pitch_degrees
             # print("After: ", desired_pitch_degrees)
+            desired_roll = torch.atan2(-ay_smooth, -az_smooth)
+            desired_roll_degrees = torch.rad2deg(desired_roll)
 
             # print("Desired tilt [deg]: ", desired_pitch_degrees)
             # print("Current tilt [deg]: ", self.rot_y_deg)
 
             desired_pitch_degrees = desired_pitch_degrees.item()
             rot_y = self.rot_y_deg.item()
-            error = abs(desired_pitch_degrees - rot_y)
+            error_pitch = abs(desired_pitch_degrees - rot_y)
+            desired_roll_degrees = desired_roll_degrees.item()
+            rot_x = self.rot_x_deg.item()
+            error_roll = abs(desired_roll_degrees - rot_x)
             linvel_x = self.vx_plane.item()
             last_linvel_x = self.last_vx_plane.item()
             height = self.base_pos[:, 2].item()
 
             # print("Tilt Error: ", error)
 
-            self.append_limited(self.desired_theta_list, desired_pitch_degrees)
+
+            self.append_limited(self.desired_pitch_list, desired_pitch_degrees)
             self.append_limited(self.current_pitch_list, rot_y)
-            self.append_limited(self.tilt_error_list, error)
+            self.append_limited(self.error_pitch_list, error_pitch)
+            self.append_limited(self.desired_roll_list, desired_roll_degrees)
+            self.append_limited(self.current_roll_list, rot_x)
+            self.append_limited(self.error_roll_list, error_roll)
             self.append_limited(self.lin_vel_x_list, linvel_x)
             self.append_limited(self.last_lin_vel_x_list, last_linvel_x)
             self.append_limited(self.ax_list, ax_smooth)
@@ -2579,31 +2930,59 @@ class LeggedSfEnv:
             if self.a_count == self.plot_save_len:
                 if ALIENWARE:
                     if self.test_plot:
-                        base_path = "/home/alienware/koyo_ws/Genesis/test_data/tilt"
+                        base_path = "/home/alienware/koyo_ws/Genesis/test_data/pitch"
                     else:
-                        base_path = "/home/alienware/koyo_ws/Genesis/Slosh-Free-Go2-Logs/data/tilt"
+                        base_path = "/home/alienware/koyo_ws/Genesis/Slosh-Free-Go2-Logs/data/pitch"
                 else:
                     if self.test_plot:
-                        base_path = "/home/psxkf4/Genesis/logs/paper/test_data/tilt"
+                        base_path = "/home/psxkf4/Genesis/logs/paper/test_data/pitch"
                     else:
-                        base_path = "/home/psxkf4/Genesis/logs/paper/data/tilt"
+                        base_path = "/home/psxkf4/Genesis/logs/paper/data/pitch"
                 # file_name = self.folder_name + "_tilt.png"
-                file_name = f"{self.folder_name}_run{self.run_num}_tilt.png"
-                tilt_path = os.path.join(base_path, file_name)
+                file_name = f"{self.folder_name}_run{self.run_num}_pitch.png"
+                pitch_path = os.path.join(base_path, file_name)
 
                 if ALIENWARE:
                     if self.test_plot:
-                        base_path = "/home/alienware/koyo_ws/Genesis/test_data/tilt_error"
+                        base_path = "/home/alienware/koyo_ws/Genesis/test_data/pitch_error"
                     else:
-                        base_path = "/home/alienware/koyo_ws/Genesis/Slosh-Free-Go2-Logs/data/tilt_error"
+                        base_path = "/home/alienware/koyo_ws/Genesis/Slosh-Free-Go2-Logs/data/pitch_error"
                 else:
                     if self.test_plot:
-                        base_path = "/home/psxkf4/Genesis/logs/paper/test_data/tilt_error"
+                        base_path = "/home/psxkf4/Genesis/logs/paper/test_data/pitch_error"
                     else:
-                        base_path = "/home/psxkf4/Genesis/logs/paper/data/tilt_error"
+                        base_path = "/home/psxkf4/Genesis/logs/paper/data/pitch_error"
                 # file_name = self.folder_name + "_error.png"
-                file_name = f"{self.folder_name}_run{self.run_num}_tilt_error.png"
-                tilt_error_path = os.path.join(base_path, file_name)
+                file_name = f"{self.folder_name}_run{self.run_num}_pitch_error.png"
+                pitch_error_path = os.path.join(base_path, file_name)
+
+                if ALIENWARE:
+                    if self.test_plot:
+                        base_path = "/home/alienware/koyo_ws/Genesis/test_data/roll"
+                    else:
+                        base_path = "/home/alienware/koyo_ws/Genesis/Slosh-Free-Go2-Logs/data/roll"
+                else:
+                    if self.test_plot:
+                        base_path = "/home/psxkf4/Genesis/logs/paper/test_data/roll"
+                    else:
+                        base_path = "/home/psxkf4/Genesis/logs/paper/data/roll"
+                # file_name = self.folder_name + "_tilt.png"
+                file_name = f"{self.folder_name}_run{self.run_num}_roll.png"
+                roll_path = os.path.join(base_path, file_name)
+
+                if ALIENWARE:
+                    if self.test_plot:
+                        base_path = "/home/alienware/koyo_ws/Genesis/test_data/roll_error"
+                    else:
+                        base_path = "/home/alienware/koyo_ws/Genesis/Slosh-Free-Go2-Logs/data/roll_error"
+                else:
+                    if self.test_plot:
+                        base_path = "/home/psxkf4/Genesis/logs/paper/test_data/roll_error"
+                    else:
+                        base_path = "/home/psxkf4/Genesis/logs/paper/data/roll_error"
+                # file_name = self.folder_name + "_error.png"
+                file_name = f"{self.folder_name}_run{self.run_num}_roll_error.png"
+                roll_error_path = os.path.join(base_path, file_name)
 
                 if ALIENWARE:
                     if self.test_plot:
@@ -2663,19 +3042,33 @@ class LeggedSfEnv:
 
                 if ALIENWARE:
                     if self.test_plot:
-                        base_path = "/home/alienware/koyo_ws/Genesis/test_data/tilt_stats"
+                        base_path = "/home/alienware/koyo_ws/Genesis/test_data/pitch_stats"
                     else:
-                        base_path = "/home/alienware/koyo_ws/Genesis/Slosh-Free-Go2-Logs/data/tilt_stats"
+                        base_path = "/home/alienware/koyo_ws/Genesis/Slosh-Free-Go2-Logs/data/pitch_stats"
                 else:
                     if self.test_plot:
-                        base_path = "/home/psxkf4/Genesis/logs/paper/test_data/tilt_stats"
+                        base_path = "/home/psxkf4/Genesis/logs/paper/test_data/pitch_stats"
                     else:
-                        # base_path = "/home/psxkf4/Genesis/logs/paper/data/tilt_stats"
-                        base_path = f"/home/psxkf4/Genesis/results/{self.folder_name}/tilt_stats"
+                        # base_path = "/home/psxkf4/Genesis/logs/paper/data/pitch_stats"
+                        base_path = f"/home/psxkf4/Genesis/results/{self.folder_name}/pitch_stats"
                 os.makedirs(base_path, exist_ok=True)
-                file_name = f"{self.folder_name}_run{self.run_num}_tilt_stats.txt"
-                tilt_stats_path = os.path.join(base_path, file_name)
+                file_name = f"{self.folder_name}_run{self.run_num}_pitch_stats.txt"
+                pitch_stats_path = os.path.join(base_path, file_name)
 
+                if ALIENWARE:
+                    if self.test_plot:
+                        base_path = "/home/alienware/koyo_ws/Genesis/test_data/roll_stats"
+                    else:
+                        base_path = "/home/alienware/koyo_ws/Genesis/Slosh-Free-Go2-Logs/data/roll_stats"
+                else:
+                    if self.test_plot:
+                        base_path = "/home/psxkf4/Genesis/logs/paper/test_data/roll_stats"
+                    else:
+                        # base_path = "/home/psxkf4/Genesis/logs/paper/data/pitch_stats"
+                        base_path = f"/home/psxkf4/Genesis/results/{self.folder_name}/roll_stats"
+                os.makedirs(base_path, exist_ok=True)
+                file_name = f"{self.folder_name}_run{self.run_num}_roll_stats.txt"
+                roll_stats_path = os.path.join(base_path, file_name)
                 
                 if ALIENWARE:
                     if self.test_plot:
@@ -2807,11 +3200,12 @@ class LeggedSfEnv:
                 file_name = f"{self.folder_name}_run{self.run_num}_angvel_z_stats.txt"
                 angvel_z_stats_path = os.path.join(base_path, file_name)
 
-                self.update_eval_plot(tilt_path, tilt_error_path, linvel_x_check_path, 
-                                      acc_path, height_path, cmd_rec_path, tilt_stats_path,
+                self.update_eval_plot(pitch_path, pitch_error_path, linvel_x_check_path, 
+                                      acc_path, height_path, cmd_rec_path, pitch_stats_path,
                                       linvel_x_path, linvel_x_error_path, linvel_x_stats_path,
                                       linvel_y_path, linvel_y_error_path, linvel_y_stats_path,
-                                      angvel_z_path, angvel_z_error_path, angvel_z_stats_path,)
+                                      angvel_z_path, angvel_z_error_path, angvel_z_stats_path,
+                                      roll_path, roll_error_path, roll_stats_path)
 
                 # if self.a_count == 10000:
                 #     self.show_plot()
@@ -2831,7 +3225,7 @@ class LeggedSfEnv:
         self.axs.cla()
 
         # Convert to NumPy before plotting
-        desired_theta_np = self.to_numpy(self.desired_theta_list)
+        desired_theta_np = self.to_numpy(self.desired_pitch_list)
         current_pitch_np = self.to_numpy(self.current_pitch_list)
 
         self.axs.plot(self.time_steps, desired_theta_np, label="Desired", color="g")
@@ -2857,7 +3251,7 @@ class LeggedSfEnv:
     
     def upate_plot_error(self):
         self.axs.cla()
-        self.axs.plot(self.time_steps, self.tilt_error_list, label="Pitch Error", color="r")
+        self.axs.plot(self.time_steps, self.error_pitch_list, label="Pitch Error", color="r")
         self.axs.set_xlabel("Time Steps")
         self.axs.set_ylabel("Error [degrees]")
         self.axs.legend()
@@ -2865,11 +3259,12 @@ class LeggedSfEnv:
 
         plt.pause(0.01)  # For real-time updates
 
-    def update_eval_plot(self, tilt_path=None, tilt_error_path=None,linvel_x_check_path=None, 
-                         acc_path=None, height_path=None, cmd_rec_path=None, tilt_stats_path=None,
+    def update_eval_plot(self, pitch_path=None, pitch_error_path=None,linvel_x_check_path=None, 
+                         acc_path=None, height_path=None, cmd_rec_path=None, pitch_stats_path=None,
                          linvel_x_path=None, linvel_x_error_path=None, linvel_x_stats_path=None,
                          linvel_y_path=None, linvel_y_error_path=None, linvel_y_stats_path=None,
-                         angvel_z_path=None, angvel_z_error_path=None, angvel_z_stats_path=None,):
+                         angvel_z_path=None, angvel_z_error_path=None, angvel_z_stats_path=None,
+                         roll_path=None, roll_error_path=None, roll_stats_path=None):
         
         tick_durations = [
             self.start_stop_cmd_len,
@@ -2900,13 +3295,13 @@ class LeggedSfEnv:
         self.axs1.cla()
 
         # Convert to NumPy before plotting
-        desired_theta_np = self.to_numpy(self.desired_theta_list)
+        desired_pitch_np = self.to_numpy(self.desired_pitch_list)
         current_pitch_np = self.to_numpy(self.current_pitch_list)
 
-        self.axs1.plot(self.time_steps, desired_theta_np, label="Desired", color="g", linestyle='--')
+        self.axs1.plot(self.time_steps, desired_pitch_np, label="Desired", color="g", linestyle='--')
         self.axs1.plot(self.time_steps, current_pitch_np, label="Current", color="m")
         self.axs1.set_xlabel("Time Steps")
-        self.axs1.set_ylabel("Tilt [degrees]")
+        self.axs1.set_ylabel("Pitch [degrees]")
         self.axs1.set_ylim(-14.0, 14.0)
         self.axs1.set_xticks(tick_positions)
         # self.axs1.set_xticklabels(tick_labels)
@@ -2916,9 +3311,9 @@ class LeggedSfEnv:
         # self.axs1.set_title("Desired and Current Pitch")
 
         self.axs2.cla()
-        self.axs2.plot(self.time_steps, self.tilt_error_list, label="Tilt Error", color="r")
+        self.axs2.plot(self.time_steps, self.error_pitch_list, label="Pitch Error", color="r")
         self.axs2.set_xlabel("Time Steps")
-        self.axs2.set_ylabel("Tilt Error [degrees]")
+        self.axs2.set_ylabel("Pitch Error [degrees]")
         self.axs2.set_ylim(-2.0, 10.0)
         self.axs2.set_xticks(tick_positions)
         self.axs2.set_xticklabels([]) 
@@ -3031,15 +3426,45 @@ class LeggedSfEnv:
         self.axs11.set_xticklabels([]) 
         self.axs11.legend()
 
+        # Convert to NumPy before plotting
+        desired_roll_np = self.to_numpy(self.desired_roll_list)
+        current_roll_np = self.to_numpy(self.current_roll_list)
 
-        # Compute stats for tilt error
-        tilt_error_np = self.to_numpy(self.tilt_error_list)
-        tilt_mean_error = tilt_error_np.mean()
-        tilt_std_error = tilt_error_np.std()
-        tilt_max_error = tilt_error_np.max()
+        self.axs12.plot(self.time_steps, desired_roll_np, label="Desired", color="g", linestyle='--')
+        self.axs12.plot(self.time_steps, current_roll_np, label="Current", color="m")
+        self.axs12.set_xlabel("Time Steps")
+        self.axs12.set_ylabel("Roll [degrees]")
+        self.axs12.set_ylim(-14.0, 14.0)
+        self.axs12.set_xticks(tick_positions)
+        # self.axs1.set_xticklabels(tick_labels)
+        # self.axs1.tick_params(axis='x', labelsize=6)
+        self.axs12.set_xticklabels([])   
+        self.axs12.legend()
+        # self.axs1.set_title("Desired and Current Pitch")
 
-        # print(f"Pitch Error - Mean: {tilt_mean_error:.3f}, Std: {tilt_std_error:.3f}, Max: {tilt_max_error:.3f}")
-        
+        self.axs13.cla()
+        self.axs13.plot(self.time_steps, self.error_roll_list, label="Roll Error", color="r")
+        self.axs13.set_xlabel("Time Steps")
+        self.axs13.set_ylabel("Roll Error [degrees]")
+        self.axs13.set_ylim(-2.0, 10.0)
+        self.axs13.set_xticks(tick_positions)
+        self.axs13.set_xticklabels([]) 
+        self.axs13.legend()
+        # self.axs2.set_title("Pitch Error")
+
+
+        # Compute stats for pitch error
+        pitch_error_np = self.to_numpy(self.error_pitch_list)
+        pitch_mean_error = pitch_error_np.mean()
+        pitch_std_error = pitch_error_np.std()
+        pitch_max_error = pitch_error_np.max()
+
+        # Compute stats for roll error
+        roll_error_np = self.to_numpy(self.error_roll_list)
+        roll_mean_error = roll_error_np.mean()
+        roll_std_error = roll_error_np.std()
+        roll_max_error = roll_error_np.max()
+
         linvel_x_error_np = self.to_numpy(self.linvel_x_error_list)
         linvel_x_mean_error = linvel_x_error_np.mean()
         linvel_x_std_error = linvel_x_error_np.std()
@@ -3079,16 +3504,27 @@ class LeggedSfEnv:
             print(f"Command length saved to {cmd_rec_path}")
 
         # Save stats to text file
-        if tilt_stats_path:
-            with open(tilt_stats_path, "w") as f:
-                f.write(f"Tilt Error Statistics Run {self.run_num}\n")
+        if pitch_stats_path:
+            with open(pitch_stats_path, "w") as f:
+                f.write(f"Pitch Error Statistics Run {self.run_num}\n")
                 f.write(f"-----------------------\n")
-                f.write(f"Mean (μ_{self.run_num}): {tilt_mean_error:.6f}\n")
-                f.write(f"Standard Deviation (σ_{self.run_num}): {tilt_std_error:.6f}\n")
-                f.write(f"Maximum (M_{self.run_num}): {tilt_max_error:.6f}\n")
+                f.write(f"Mean (μ_{self.run_num}): {pitch_mean_error:.6f}\n")
+                f.write(f"Standard Deviation (σ_{self.run_num}): {pitch_std_error:.6f}\n")
+                f.write(f"Maximum (M_{self.run_num}): {pitch_max_error:.6f}\n")
                 f.write(f"\n")
                 f.write(f"Total Step Length (n_{self.run_num}): {self.plot_save_len}")
-            print(f"Tilt error stats saved to {tilt_stats_path}")
+            print(f"Pitch error stats saved to {pitch_stats_path}")
+        
+        if roll_stats_path:
+            with open(roll_stats_path, "w") as f:
+                f.write(f"Roll Error Statistics Run {self.run_num}\n")
+                f.write(f"-----------------------\n")
+                f.write(f"Mean (μ_{self.run_num}): {roll_mean_error:.6f}\n")
+                f.write(f"Standard Deviation (σ_{self.run_num}): {roll_std_error:.6f}\n")
+                f.write(f"Maximum (M_{self.run_num}): {roll_max_error:.6f}\n")
+                f.write(f"\n")
+                f.write(f"Total Step Length (n_{self.run_num}): {self.plot_save_len}")
+            print(f"Roll error stats saved to {roll_stats_path}")
 
         if linvel_x_stats_path:
             with open(linvel_x_stats_path, "w") as f:
@@ -3123,10 +3559,10 @@ class LeggedSfEnv:
                 f.write(f"Total Step Length (n_{self.run_num}): {self.plot_save_len}")
             print(f"Angular z velocity error stats saved to {angvel_z_stats_path}")
 
-        if tilt_path and tilt_error_path and linvel_x_check_path and acc_path and height_path and linvel_x_path and linvel_x_error_path and linvel_y_path and linvel_y_error_path and angvel_z_path and angvel_z_error_path:
+        if pitch_path and pitch_error_path and roll_path and roll_error_path and linvel_x_check_path and acc_path and height_path and linvel_x_path and linvel_x_error_path and linvel_y_path and linvel_y_error_path and angvel_z_path and angvel_z_error_path:
             print("PLOTS ARE SAVED")
-            self.fig1.savefig(tilt_path, dpi=300, bbox_inches='tight')
-            self.fig2.savefig(tilt_error_path, dpi=300, bbox_inches='tight')
+            self.fig1.savefig(pitch_path, dpi=300, bbox_inches='tight')
+            self.fig2.savefig(pitch_error_path, dpi=300, bbox_inches='tight')
             self.fig3.savefig(linvel_x_check_path, dpi=300, bbox_inches='tight')
             self.fig4.savefig(acc_path, dpi=300, bbox_inches='tight')
             self.fig5.savefig(height_path, dpi=300, bbox_inches='tight')
@@ -3136,6 +3572,8 @@ class LeggedSfEnv:
             self.fig9.savefig(linvel_y_error_path, dpi=300, bbox_inches='tight')
             self.fig10.savefig(angvel_z_path, dpi=300, bbox_inches='tight')
             self.fig11.savefig(angvel_z_error_path, dpi=300, bbox_inches='tight')
+            self.fig12.savefig(roll_path, dpi=300, bbox_inches='tight')
+            self.fig13.savefig(roll_error_path, dpi=300, bbox_inches='tight')
 
         plt.pause(0.01)
 
@@ -3226,6 +3664,16 @@ class LeggedSfEnv:
 
     def get_privileged_observations(self):
         return self.privileged_obs_buf
+    
+    def get_critic_observations(self):
+        return self.privileged_obs_buf
+    
+    def get_domain_randomizations(self):
+        return self.domain_randomizations_buf
+    
+    def get_observations_history(self):
+        return self.obs_history_buf
+    
 
 
 
@@ -3425,6 +3873,9 @@ class LeggedSfEnv:
         elif ACC_PROFILE_RESAMPLE_V2:
             reset_flag = True
             self._resample_commands_gaussian_acc_v2(envs_idx, reset_flag)
+        elif ACC_PROFILE_RESAMPLE_V3:
+            reset_flag = True
+            self._resample_commands_gaussian_acc_v3(envs_idx, reset_flag)
         elif DESIRED_PITCH_COMMAND:
             self._resample_desired_pitch(envs_idx)
         elif PREDEFINED_RESAMPLE_EVAL or PREDEFINED_RESAMPLE_TRY_EVAL:
@@ -3517,7 +3968,10 @@ class LeggedSfEnv:
     def reset(self):
         self.reset_buf[:] = True
         self.reset_idx(torch.arange(self.num_envs, device=self.device))
-        return self.obs_buf, self.privileged_obs_buf
+        if TEACHER_STUDENT:
+            return self.obs_buf, self.privileged_obs_buf, self.obs_history_buf
+        else:
+            return self.obs_buf, self.privileged_obs_buf
 
 
     def _render_headless(self):
@@ -3670,9 +4124,13 @@ class LeggedSfEnv:
             print("NaN in friction ratios before applying them!")
             print("ratios:", ratios)
             raise ValueError("NaNs in friction ratios.")
-
-
+        
+        # print("friction ratios: ", ratios)
+        # print("shape of ratios: ", ratios.shape)
         solver.set_geoms_friction_ratio(ratios, torch.arange(0, solver.n_geoms), env_ids)
+        
+        self.frictions = ratios
+        print("friction ratios: ", self.frictions.shape)
 
     def _randomize_base_mass(self, env_ids):
 
@@ -3683,6 +4141,9 @@ class LeggedSfEnv:
                         * (max_mass - min_mass) + min_mass
 
         self.rigid_solver.set_links_mass_shift(added_mass, [base_link_id,], env_ids)
+
+        self.added_masses = added_mass
+        print("added mass: ", self.added_masses.shape)
 
     def _randomize_com_displacement(self, env_ids):
 
@@ -3695,11 +4156,16 @@ class LeggedSfEnv:
 
         self.rigid_solver.set_links_COM_shift(com_displacement, [base_link_id,], env_ids)
 
+        self.com_displacement = com_displacement
+        print("com displacement: ", self.com_displacement.shape)
+
     def _randomize_motor_strength(self, env_ids):
 
         min_strength, max_strength = self.env_cfg['motor_strength_range']
         self.motor_strengths[env_ids, :] = gs.rand((len(env_ids), 1), dtype=float) \
                                            * (max_strength - min_strength) + min_strength
+        print("self.motor_strengths: ", self.motor_strengths.shape)
+
 
     def _randomize_motor_offset(self, env_ids):
 
@@ -3887,6 +4353,18 @@ class LeggedSfEnv:
 
         return error
     
+    def _reward_hip_vel(self):
+        return torch.square(self.hip_vel)
+
+    def _reward_hip_pos(self):
+        # .squeeze(-1)
+        error = torch.square(self.hip_pos- self.default_hip_pos)
+        print(f"error shape {error.shape} and value {error}")
+        breakpoint()
+        return error
+        # return torch.square(self.hip_pos- self.default_hip_pos)
+
+    
     def _reward_slosh_free_world_v3(self):
         ax = (self.vx_plane - self.last_vx_plane) / self.dt
         ay = (self.vy_plane - self.last_vy_plane) / self.dt
@@ -3904,7 +4382,7 @@ class LeggedSfEnv:
         desired_pitch_degrees = torch.rad2deg(desired_pitch)
         desired_pitch_degrees = desired_pitch_degrees.unsqueeze(-1)
 
-        desired_roll = torch.atan2(ay_smooth, -az_smooth)
+        desired_roll = torch.atan2(-ay_smooth, -az_smooth)
         desired_roll_degrees = torch.rad2deg(desired_roll)
         desired_roll_degrees = desired_roll_degrees.unsqueeze(-1)
 
@@ -3920,6 +4398,58 @@ class LeggedSfEnv:
         self.smoothed_ax_mean = torch.mean(ax_smooth)
         self.smoothed_az_mean = torch.mean(az_smooth)
         self.mean_pitch_error_normalized = torch.mean(desired_pitch_degrees - self.rot_y_deg)
+        self.mean_roll_error_normalized = torch.mean(desired_roll_degrees - self.rot_x_deg)
+
+        return error
+    
+    def _reward_slosh_free_world_xz(self):
+        ax = (self.vx_plane - self.last_vx_plane) / self.dt
+        az = -9.8 + (self.vz_world - self.last_vz_world) / self.dt
+
+        self.ax_filtered = self.alpha * self.ax_filtered + (1.0 - self.alpha) * ax
+        self.az_filtered = self.alpha * self.az_filtered + (1.0 - self.alpha) * az
+        
+        ax_smooth = self.ax_filtered * self.ax_scale
+        az_smooth = self.az_filtered * self.az_scale
+
+        desired_pitch = torch.atan2(ax_smooth, -az_smooth)
+        desired_pitch_degrees = torch.rad2deg(desired_pitch)
+        desired_pitch_degrees = desired_pitch_degrees.unsqueeze(-1)
+
+        error_pitch = torch.square(desired_pitch_degrees - self.rot_y_deg)
+        error_pitch = error_pitch.squeeze(-1)
+
+        error = error_pitch
+
+        # Logging for monitoring purposes
+        self.smoothed_ax_mean = torch.mean(ax_smooth)
+        self.smoothed_az_mean = torch.mean(az_smooth)
+        self.mean_pitch_error_normalized = torch.mean(desired_pitch_degrees - self.rot_y_deg)
+
+        return error
+    
+    def _reward_slosh_free_world_yz(self):
+        ay = (self.vy_plane - self.last_vy_plane) / self.dt
+        # az = -9.8 + (self.vz_world - self.last_vz_world) / self.dt
+
+        self.ay_filtered = self.alpha * self.ay_filtered + (1.0 - self.alpha) * ay
+        # self.az_filtered = self.alpha * self.az_filtered + (1.0 - self.alpha) * az
+        
+        ay_smooth = self.ay_filtered
+        az_smooth = self.az_filtered * self.az_scale
+
+        desired_roll = torch.atan2(ay_smooth, -az_smooth)
+        desired_roll_degrees = torch.rad2deg(desired_roll)
+        desired_roll_degrees = desired_roll_degrees.unsqueeze(-1)
+
+        error_roll = torch.square(desired_roll_degrees - self.rot_x_deg)
+        error_roll = error_roll.squeeze(-1)
+
+        error = error_roll
+
+        # Logging for monitoring purposes
+        self.smoothed_az_mean = torch.mean(az_smooth)
+        self.mean_roll_error_normalized = torch.mean(desired_roll_degrees - self.rot_x_deg)
 
         return error
 
@@ -4441,7 +4971,6 @@ class LeggedSfEnv:
 
     # def _reward_hip_pos(self):
     #     return torch.sum(torch.abs(self.hip_pos- self.default_hip_pos), dim=(1))
-
 
 
     # def _reward_front_feet_swing_height_from_base(self):

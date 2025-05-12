@@ -8,7 +8,8 @@ import cv2
 import numpy as np
 from legged_env import LeggedEnv
 from legged_sf_env import LeggedSfEnv
-from rsl_rl.runners import OnPolicyRunner
+# from rsl_rl.runners import OnPolicyRunner
+from rsl_rl_ts.runners import OnPolicyRunner
 import os
 os.environ['PYOPENGL_PLATFORM'] = 'glx'
 import genesis as gs
@@ -21,6 +22,8 @@ SLOSH_FREE = 0
 NO_ACC_SAMPLE = 0
 NO_SLOSH_FREE = 0
 LATEST = 1
+
+TEACHER_STUDENT = 1
 
 class Go2EvaluationNode(Node):
     def __init__(self):
@@ -194,12 +197,32 @@ class Go2EvaluationNode(Node):
             loaded_model.save(versionless_path)
             print("Model successfully converted to version-less format: ", versionless_path)
 
+            if TEACHER_STUDENT:
+                adaptation_path = os.path.join(log_dir, 'exported', 'policies')
+                # export_policy_as_jit(runner.alg.actor_critic, path)
+                os.makedirs(adaptation_path, exist_ok=True)
+                adaptation_path = os.path.join(adaptation_path, 'adaptation_1.pt')
+                adaptation = copy.deepcopy(runner.alg.actor_critic.adaptation_module).to('cpu')
+                traced_script_module_adaptation = torch.jit.script(adaptation)
+                traced_script_module_adaptation.save(adaptation_path)
+                print('Exported adaptation as jit script to: ', adaptation_path)
+                # Convert the policy to a version-less format
+                adaptation_versionless_path = os.path.join(log_dir, 'exported', 'policies', "adaptation_safe.pt")
+                loaded_adaptation = torch.jit.load(adaptation_path)
+                loaded_adaptation.eval()
+                loaded_adaptation.save(adaptation_versionless_path)
+                print("Model successfully converted to version-less format: ", versionless_path)
+
+
         if PITCH_COMMAND:
             self.teleop_commands = torch.zeros((1, 4), device=self.device) 
         else:
             self.teleop_commands = torch.zeros((1, 3), device=self.device)  # 3 for [x, y, z]
 
-        self.obs, _ = self.env.reset()
+        if TEACHER_STUDENT:
+            self.obs, _ , self.obs_history= self.env.reset()
+        else:
+            self.obs, _ = self.env.reset()
 
 
     def teleop_callback(self, msg: Twist):
@@ -219,8 +242,13 @@ class Go2EvaluationNode(Node):
         # self.env.commands = torch.zeros((1, 3), device=self.device)
 
         with torch.no_grad():
-            self.actions = self.policy(self.obs)
-            self.obs, _, self.rews, self.dones, infos = self.env.step(self.actions)
+            if TEACHER_STUDENT:
+                self.actions = self.policy(self.obs, self.obs_history)
+                self.obs, self.rews, self.dones, infos = self.env.step(self.actions)
+                self.obs_history = self.env.get_observations_history()
+            else:
+                self.actions = self.policy(self.obs)
+                self.obs, _, self.rews, self.dones, infos = self.env.step(self.actions)
     
 
 
