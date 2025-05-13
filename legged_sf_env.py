@@ -22,7 +22,7 @@ PLOT_TILT_ERROR_VEL_ACC_HEIGHT_CMDREC = 0
 RANDOM_RESAMPLE_EVAL = 0
 ROLL_EVAL = 0
 
-ACC_PROFILE_RESAMPLE = 1
+ACC_PROFILE_RESAMPLE = 0
 ACC_PROFILE_RESAMPLE_V2 = 0
 ACC_PROFILE_RESAMPLE_V3 = 0
 POS_ACC = 0
@@ -597,6 +597,8 @@ class LeggedSfEnv:
             device=self.device,
             dtype=gs.tc_float,
         )
+        # print("self.default_dof_pos: ", self.default_dof_pos)
+        # breakpoint()
         self.num_dof = len(self.default_dof_pos )
         self.default_hip_pos = torch.tensor(
             [
